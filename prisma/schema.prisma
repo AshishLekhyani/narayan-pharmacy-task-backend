@@ -7,33 +7,32 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
-model Prescription {
-  id               Int          @id @default(autoincrement())
+model History {
+  id               Int            @id @default(autoincrement())
   patientName      String
-  doctorName       String
-  date             DateTime     @default(now())
+  date             DateTime       @default(now())
   
   // AI Analysis Results
-  aiStatus         String?      // e.g., "Critical Conflict", "Verified Safe"
-  aiSeverity       String?      // e.g., "Severe", "Moderate", "Mild", "None"
+  aiStatus         String?      
+  aiSeverity       String?      
   aiRecommendation String?      @db.Text
   aiPrimaryWarning String?      @db.Text
   
-  medications      Medication[]
+  // A History entry holds multiple Prescriptions (the actual drugs/medications)
+  prescriptions    Prescription[] 
   
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 }
 
-model Medication {
-  id               Int          @id @default(autoincrement())
+model Prescription {
+  id               Int            @id @default(autoincrement())
   name             String
   dosage           String
   frequency        String
   
-  prescriptionId   Int
-  prescription     Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  historyId        Int
+  history          History        @relation(fields: [historyId], references: [id], onDelete: Cascade)
 }

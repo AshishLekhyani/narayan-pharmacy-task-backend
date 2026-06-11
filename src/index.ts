@@ -5,7 +5,7 @@ import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
 
 import analyzeRoutes from "./routes/analyze";
-import prescriptionRoutes from "./routes/prescriptions";
+import historyRoutes from "./routes/history";
 
 dotenv.config();
 
@@ -46,7 +46,7 @@ app.get("/health", (req, res) => {
 
 // === 6. Core API Routes ===
 app.use("/api/analyze", analyzeRoutes);
-app.use("/api/prescriptions", prescriptionRoutes);
+app.use("/api/history", historyRoutes);
 
 // === 7. Global Error Handler Middleware ===
 // Catch unhandled route errors and prevent stack trace leakage in production.

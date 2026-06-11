@@ -10,18 +10,17 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-// Zod schema for rigorous incoming prescription data validation
-const prescriptionSchema = z.object({
+// Zod schema for rigorous incoming history data validation
+const historySchema = z.object({
   patientName: z.string().min(2, "Patient name must be at least 2 characters."),
-  doctorName: z.string().min(2, "Doctor name must be at least 2 characters."),
   date: z.string().optional(),
-  medications: z.array(
+  prescriptions: z.array(
     z.object({
-      name: z.string().min(1, "Medication name is required."),
+      name: z.string().min(1, "Drug name is required."),
       dosage: z.string().min(1, "Dosage is required."),
       frequency: z.string().min(1, "Frequency is required.")
     })
-  ).min(1, "At least one medication must be included."),
+  ).min(1, "At least one prescription drug must be included."),
   aiAnalysis: z.object({
     severity: z.string().optional(),
     severityLevel: z.string().optional(),
@@ -30,12 +29,12 @@ const prescriptionSchema = z.object({
   }).optional()
 });
 
-// GET all prescriptions (Hydrates History Page)
+// GET all History records
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const prescriptions = await prisma.prescription.findMany({
+    const historyRecords = await prisma.history.findMany({
       include: {
-        medications: true,
+        prescriptions: true,
       },
       orderBy: {
         date: "desc",
@@ -43,51 +42,50 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       take: 100, // Impose a hard limit to prevent severe DB load on massive histories
     });
 
-    res.status(200).json({ status: "success", data: prescriptions });
+    res.status(200).json({ status: "success", data: historyRecords });
   } catch (error) {
     next(error);
   }
 });
 
-// POST a new prescription (ACID-compliant insert)
+// POST a new History record (ACID-compliant insert)
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // 1. Zod Validation (Defensive programming barrier)
-    const validationResult = prescriptionSchema.safeParse(req.body);
+    // 1. Zod Validation
+    const validationResult = historySchema.safeParse(req.body);
     if (!validationResult.success) {
       return res.status(400).json({ 
         status: "error", 
-        message: "Invalid prescription payload.", 
+        message: "Invalid history payload.", 
         details: validationResult.error.issues 
       });
     }
 
-    const { patientName, doctorName, date, medications, aiAnalysis } = validationResult.data;
+    const { patientName, date, prescriptions, aiAnalysis } = validationResult.data;
 
     // 2. ACID-Compliant Transaction Insert
-    const newPrescription = await prisma.prescription.create({
+    const newHistory = await prisma.history.create({
       data: {
         patientName,
-        doctorName,
         date: date ? new Date(date) : undefined,
         aiStatus: aiAnalysis?.severity,
         aiSeverity: aiAnalysis?.severityLevel,
         aiRecommendation: aiAnalysis?.recommendation,
         aiPrimaryWarning: aiAnalysis?.primaryWarning,
-        medications: {
-          create: medications.map(med => ({
-            name: med.name,
-            dosage: med.dosage,
-            frequency: med.frequency,
+        prescriptions: {
+          create: prescriptions.map(drug => ({
+            name: drug.name,
+            dosage: drug.dosage,
+            frequency: drug.frequency,
           })),
         },
       },
       include: {
-        medications: true,
+        prescriptions: true,
       },
     });
 
-    res.status(201).json({ status: "success", data: newPrescription });
+    res.status(201).json({ status: "success", data: newHistory });
   } catch (error) {
     next(error);
   }
