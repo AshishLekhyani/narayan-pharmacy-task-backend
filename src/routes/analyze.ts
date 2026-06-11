@@ -34,7 +34,7 @@ router.post("/", aiLimiter, async (req: Request, res: Response, next: NextFuncti
       return res.status(400).json({ 
         status: "error", 
         message: "Malformed payload structure.", 
-        details: validationResult.error.errors 
+        details: validationResult.error.issues 
       });
     }
 

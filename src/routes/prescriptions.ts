@@ -1,9 +1,14 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { PrismaClient } from "@prisma/client";
+import { Pool } from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { z } from "zod";
 
 const router = Router();
-const prisma = new PrismaClient();
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 // Zod schema for rigorous incoming prescription data validation
 const prescriptionSchema = z.object({
@@ -53,7 +58,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       return res.status(400).json({ 
         status: "error", 
         message: "Invalid prescription payload.", 
-        details: validationResult.error.errors 
+        details: validationResult.error.issues 
       });
     }
 
