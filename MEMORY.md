@@ -37,3 +37,9 @@
 
 ### [June 11, 2026 - 7:45 PM] Production Environment & Initialization Fixes
 - **Initialization Hoisting**: Fixed a critical Neon PostgreSQL connection crash (`client password must be a string`) by utilizing `import "dotenv/config"` at the absolute top of `index.ts`. This bypasses ES6 module hoisting to ensure `DATABASE_URL` is parsed before Prisma establishes its connection pool.
+
+### [June 11, 2026 - 8:13 PM] Clinical AI Engine Hardening & DB-Backed Analysis Cache
+- **Pharmacy-Specific Prompt**: Completely rewrote the Claude prompt in `POST /api/analyze`. The new prompt explicitly instructs Claude to act as a clinical pharmacist DDI engine, evaluate CYP450 enzyme inhibition/induction, pharmacodynamic antagonism, and additive toxicity, and return a recommendation framed for the dispensing pharmacist at Narayan Pharmacy. This replaced the generic "check these drugs" instruction.
+- **Single-Drug Guard**: Added a Zod `.superRefine()` rule on the backend to enforce a minimum of 2 medications before the route proceeds. Previously a single drug could be submitted without triggering the guard.
+- **DB-Backed Analysis Cache (`AnalysisCache` model)**: Added a new Prisma model `AnalysisCache` with a `cacheKey` (SHA-256 of the sorted normalized medication fingerprint), `result` (JSONB), and a `hitCount` counter. The `/api/analyze` route now checks this table before calling Claude. Cache hits return the stored result instantly and increment `hitCount` in the background (fire-and-forget). Cache misses call Claude and persist the result.
+- **Error Surfacing**: All failure branches in `/api/analyze` now return a human-readable `message` field that the frontend can display inline instead of a generic fallback.

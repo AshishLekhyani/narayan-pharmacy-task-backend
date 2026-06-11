@@ -28,3 +28,18 @@ CREATE TABLE "PrescriptionItem" (
 
 -- AddForeignKey
 ALTER TABLE "PrescriptionItem" ADD CONSTRAINT "PrescriptionItem_prescriptionRecordId_fkey" FOREIGN KEY ("prescriptionRecordId") REFERENCES "PrescriptionRecord"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- CreateTable: AnalysisCache — stores Claude AI results keyed by a canonical sorted drug fingerprint
+CREATE TABLE "AnalysisCache" (
+    "id" SERIAL NOT NULL,
+    "cacheKey" TEXT NOT NULL,
+    "result" JSONB NOT NULL,
+    "hitCount" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AnalysisCache_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AnalysisCache_cacheKey_key" ON "AnalysisCache"("cacheKey");

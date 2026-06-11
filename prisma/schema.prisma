@@ -32,3 +32,14 @@ model PrescriptionItem {
   prescriptionRecordId Int
   prescriptionRecord   PrescriptionRecord  @relation(fields: [prescriptionRecordId], references: [id], onDelete: Cascade)
 }
+
+/// Caches Claude AI interaction results keyed by a canonical sorted drug fingerprint.
+/// Prevents duplicate API calls for the same drug combination.
+model AnalysisCache {
+  id          Int      @id @default(autoincrement())
+  cacheKey    String   @unique  // canonical sorted fingerprint of medications
+  result      Json              // raw parsed JSON returned from Claude
+  hitCount    Int      @default(1) // how many times this cache entry has been served
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
