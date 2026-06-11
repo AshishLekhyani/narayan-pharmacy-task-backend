@@ -28,3 +28,12 @@
   - `GET /api/history`: Retrieves chronologically sorted pharmacy records.
   - `POST /api/history`: ACID-compliant creation of a History record along with nested Prescriptions. simultaneously. Added a GET route to hydrate the frontend History page.
 
+### [June 11, 2026 - 7:20 PM] Schema Realignment & Audit Persistence
+- **Schema Correction**: Replaced the semantically inverted `History` -> `Prescription` structure with a clinically coherent parent/child model: `PrescriptionRecord` for the saved encounter and `PrescriptionItem` for each medication row. This matches the frontend workflow, where one prescription contains multiple medications.
+- **Migration Repair**: Updated the initial Prisma SQL migration so it no longer references stale columns such as `doctorName` or the old `Medication` table names. The schema and migration now describe the same database.
+- **API Contract Upgrade**: Refactored `GET /api/history` and `POST /api/history` to expose normalized DTOs with `medications[]` and `analysis` instead of leaking confusing raw table terminology. Added backward-compatible ingestion for the older `prescriptions` payload during the transition.
+- **Audit Trail Completion**: Persisted the AI metadata that the UI already depends on, including `clinicalImpact[]` and `processedBy`, preventing silent loss of clinical audit detail when a record is saved.
+- **Validation Result**: Prisma client generation succeeded after a network-enabled run, and `npx tsc --noEmit` passes in `Backend`. The `npm test` script still intentionally fails because this repository has no real backend test suite yet.
+
+### [June 11, 2026 - 7:45 PM] Production Environment & Initialization Fixes
+- **Initialization Hoisting**: Fixed a critical Neon PostgreSQL connection crash (`client password must be a string`) by utilizing `import "dotenv/config"` at the absolute top of `index.ts`. This bypasses ES6 module hoisting to ensure `DATABASE_URL` is parsed before Prisma establishes its connection pool.

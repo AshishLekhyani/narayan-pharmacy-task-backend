@@ -1,13 +1,11 @@
+import "dotenv/config";
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import dotenv from "dotenv";
 
 import analyzeRoutes from "./routes/analyze";
 import historyRoutes from "./routes/history";
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;

@@ -1,29 +1,30 @@
 -- CreateTable
-CREATE TABLE "Prescription" (
+CREATE TABLE "PrescriptionRecord" (
     "id" SERIAL NOT NULL,
     "patientName" TEXT NOT NULL,
-    "doctorName" TEXT NOT NULL,
-    "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "aiStatus" TEXT,
-    "aiSeverity" TEXT,
-    "aiRecommendation" TEXT,
-    "aiPrimaryWarning" TEXT,
+    "prescribedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "analysisStatusLabel" TEXT,
+    "analysisSeverityLevel" TEXT,
+    "analysisRecommendation" TEXT,
+    "analysisPrimaryWarning" TEXT,
+    "analysisClinicalImpact" JSONB,
+    "analysisProcessedBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "Prescription_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "PrescriptionRecord_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
-CREATE TABLE "Medication" (
+CREATE TABLE "PrescriptionItem" (
     "id" SERIAL NOT NULL,
-    "name" TEXT NOT NULL,
+    "medicationName" TEXT NOT NULL,
     "dosage" TEXT NOT NULL,
     "frequency" TEXT NOT NULL,
-    "prescriptionId" INTEGER NOT NULL,
+    "prescriptionRecordId" INTEGER NOT NULL,
 
-    CONSTRAINT "Medication_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "PrescriptionItem_pkey" PRIMARY KEY ("id")
 );
 
 -- AddForeignKey
-ALTER TABLE "Medication" ADD CONSTRAINT "Medication_prescriptionId_fkey" FOREIGN KEY ("prescriptionId") REFERENCES "Prescription"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "PrescriptionItem" ADD CONSTRAINT "PrescriptionItem_prescriptionRecordId_fkey" FOREIGN KEY ("prescriptionRecordId") REFERENCES "PrescriptionRecord"("id") ON DELETE CASCADE ON UPDATE CASCADE;

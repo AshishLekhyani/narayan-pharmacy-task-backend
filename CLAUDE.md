@@ -21,7 +21,7 @@ The Narayan Pharmacy Backend is a high-availability, clinical-grade API built to
 
 ### 2. Database & Models (Prisma)
 - **Migrations First**: Do not execute raw SQL. All structural database changes must be executed through `schema.prisma` and deployed via `npx prisma migrate dev`.
-- **Relational Integrity**: Enforce foreign key constraints between `Prescriptions` and `Medications`. Use Cascade deletes where appropriate.
+- **Relational Integrity**: Enforce foreign key constraints between `PrescriptionRecord` and `PrescriptionItem`. Use Cascade deletes where appropriate.
 
 ### 3. API Route Structure
 - **Modularity**: Isolate routes into a `src/routes/` directory. Do not clutter the primary `index.ts` or `server.ts` entry point.

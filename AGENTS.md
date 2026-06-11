@@ -12,6 +12,8 @@
 ## 2. Database Integrity & State Management
 - **ACID Compliance Constraints**: When executing multi-model inserts (e.g., saving a `Prescription` and multiple child `Medications`), you MUST utilize Prisma's `$transaction` API. Partial failures in clinical data insertion are unacceptable and legally hazardous.
 - **Migration Authority**: You have the authority to alter the database schema via `schema.prisma`. However, you must treat schema changes as irreversible in a distributed environment. Ensure migrations (`npx prisma migrate dev`) are successfully generated and tested locally before declaring the task complete. Never execute direct raw SQL (`$queryRaw`) to circumvent the ORM unless explicitly required for performance tuning, and even then, strictly parameterize all inputs to prevent SQL Injection.
+- **Canonical Domain Naming**: The root clinical record in this codebase is `PrescriptionRecord`, not `History`. The child line items are `PrescriptionItem`, not `Prescription`. Any future API contract, migration, DTO, or UI copy must preserve that distinction so schema names match pharmacist mental models.
+- **Audit Persistence Rule**: If the frontend surfaces AI findings such as severity, primary warning, recommendation, clinical impact, or model/provider name, the backend must either persist those fields explicitly or intentionally omit them from the UI contract. Never silently drop audit metadata during save flows.
 
 ## 3. Security, Auth, & Zero-Trust Mandates
 - **Zero-Secret Commits**: Before running `git commit`, execute a mental audit. Verify that `.env` files are in `.gitignore` and that absolutely NO hardcoded credentials (e.g., Anthropic API keys, JWT Secrets, Database URLs) have leaked into the repository.
@@ -21,6 +23,7 @@
 ## 4. Architectural Cohesion & Dependency Management
 - **Domain-Driven Design (DDD)**: Do not build monolithic `index.ts` files. Isolate business logic into Service layers (`src/services/`), keeping Route Controllers thin. Let the controllers handle HTTP semantics, while the services handle the core pharmacological business logic.
 - **Strict TypeScript Enforcement**: This is not a dynamic prototyping sandbox. Utilize `strict: true` in `tsconfig.json`. Do not use `any`; construct explicit Interfaces or Types for all payloads. Let the compiler catch your errors before runtime.
+- **Contract Stability**: Prefer returning normalized DTOs from routes instead of leaking raw Prisma model names directly to the frontend. This makes future migrations safer and keeps UI code resilient to schema churn.
 
 ## 5. Communication & Memory Governance
 - **Architectural Logging (`MEMORY.md`)**: You are maintaining a living architecture document. Every time you introduce a new dependency, alter a database model, or make a significant architectural trade-off, you MUST log the specific change with an exact, chronologically accurate timestamp in `MEMORY.md`. Provide the *why*, not just the *what*.

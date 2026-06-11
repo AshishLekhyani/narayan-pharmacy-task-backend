@@ -12,12 +12,22 @@ const anthropic = new Anthropic({
 const analyzeSchema = z.object({
   drugs: z.array(
     z.object({
-      name: z.string().min(1, "Drug name is required"),
-      dosage: z.string().min(1, "Dosage is required"),
-      frequency: z.string().min(1, "Frequency is required")
+      name: z.string().trim().min(1, "Drug name is required"),
+      dosage: z.string().trim().min(1, "Dosage is required"),
+      frequency: z.string().trim().min(1, "Frequency is required"),
     })
   ).min(1, "At least one drug must be provided for analysis.")
-});
+}).or(
+  z.object({
+    medications: z.array(
+      z.object({
+        name: z.string().trim().min(1, "Drug name is required"),
+        dosage: z.string().trim().min(1, "Dosage is required"),
+        frequency: z.string().trim().min(1, "Frequency is required"),
+      })
+    ).min(1, "At least one medication must be provided for analysis."),
+  })
+);
 
 // AI endpoints are expensive; apply stricter rate limiting
 const aiLimiter = rateLimit({
@@ -42,7 +52,9 @@ router.post("/", aiLimiter, async (req: Request, res: Response, next: NextFuncti
       return res.status(503).json({ status: "error", message: "AI Integration service is currently unavailable." });
     }
 
-    const { drugs } = validationResult.data;
+    const drugs = "drugs" in validationResult.data
+      ? validationResult.data.drugs
+      : validationResult.data.medications;
     const drugListString = drugs.map(d => `${d.name} (${d.dosage}, ${d.frequency})`).join("\n");
 
     const prompt = `You are a strict, highly conservative clinical pharmacologist API.
@@ -69,7 +81,12 @@ Do NOT output any markdown blocks or conversational text. Output ONLY the raw JS
       messages: [{ role: "user", content: prompt }],
     });
 
-    const responseText = (message.content[0] as any).text;
+    const firstBlock = message.content[0];
+    if (firstBlock.type !== "text") {
+      return res.status(502).json({ status: "error", message: "AI Gateway returned an unsupported response block." });
+    }
+
+    const responseText = firstBlock.text;
     
     // Attempt to parse the JSON returned by Claude safely
     try {

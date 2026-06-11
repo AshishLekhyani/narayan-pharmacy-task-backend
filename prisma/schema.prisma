@@ -9,30 +9,26 @@ datasource db {
   provider = "postgresql"
 }
 
-model History {
-  id               Int            @id @default(autoincrement())
-  patientName      String
-  date             DateTime       @default(now())
-  
-  // AI Analysis Results
-  aiStatus         String?      
-  aiSeverity       String?      
-  aiRecommendation String?      @db.Text
-  aiPrimaryWarning String?      @db.Text
-  
-  // A History entry holds multiple Prescriptions (the actual drugs/medications)
-  prescriptions    Prescription[] 
-  
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+model PrescriptionRecord {
+  id                      Int                @id @default(autoincrement())
+  patientName             String
+  prescribedAt            DateTime           @default(now())
+  analysisStatusLabel     String?
+  analysisSeverityLevel   String?
+  analysisRecommendation  String?            @db.Text
+  analysisPrimaryWarning  String?            @db.Text
+  analysisClinicalImpact  Json?
+  analysisProcessedBy     String?
+  items                   PrescriptionItem[]
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
 }
 
-model Prescription {
-  id               Int            @id @default(autoincrement())
-  name             String
-  dosage           String
-  frequency        String
-  
-  historyId        Int
-  history          History        @relation(fields: [historyId], references: [id], onDelete: Cascade)
+model PrescriptionItem {
+  id                   Int                 @id @default(autoincrement())
+  medicationName       String
+  dosage               String
+  frequency            String
+  prescriptionRecordId Int
+  prescriptionRecord   PrescriptionRecord  @relation(fields: [prescriptionRecordId], references: [id], onDelete: Cascade)
 }
