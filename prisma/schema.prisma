@@ -1,13 +1,39 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Prescription {
+  id               Int          @id @default(autoincrement())
+  patientName      String
+  doctorName       String
+  date             DateTime     @default(now())
+  
+  // AI Analysis Results
+  aiStatus         String?      // e.g., "Critical Conflict", "Verified Safe"
+  aiSeverity       String?      // e.g., "Severe", "Moderate", "Mild", "None"
+  aiRecommendation String?      @db.Text
+  aiPrimaryWarning String?      @db.Text
+  
+  medications      Medication[]
+  
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model Medication {
+  id               Int          @id @default(autoincrement())
+  name             String
+  dosage           String
+  frequency        String
+  
+  prescriptionId   Int
+  prescription     Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
 }
