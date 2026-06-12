@@ -129,3 +129,18 @@
 - **Types**: Shared `MedicationInput` in `medication-input.ts`.
 - **Tests**: `validatePrescriptionDate` + `single-drug-analysis` tests; `tsconfig` excludes `*.test.ts` from production `tsc`.
 - **Validation Result**: `npm run build` and `npm test` pass.
+
+### [June 12, 2026 - 10:15 PM] US Pharmacy Prompt Upgrade
+- **Geography**: Analyze prompt reframed from India to **US pharmacy** context (US nomenclature, SIG patterns, OTC co-use, dispensing norms).
+- **Clinical Depth**: Expanded evaluation scope — PK/PD DDIs, CYP/transporter effects, duplicate therapy, high-risk classes, evidence-calibrated severity, and hold-dispense guidance.
+- **Guardrails**: Unrecognized drug handling now references US generic/brand mapping and NDC/Rx verification instead of Indian brand variants.
+- **System Message**: `interaction-analysis.ts` system prompt aligned to US outpatient standards; `processedBy` suffix updated to `(US)`.
+- **Prompt v2 (`us-2`)**: Removed markdown formatting; added valid JSON example; FDA/US OTC context; food/administration checks; multi-drug prioritization; no-patient-assumption guardrails; exact severity enum enforcement.
+- **Cache Fix**: `ANALYSIS_PROMPT_VERSION` baked into `buildMedicationCacheKey` — prior mistake served India-era cached results after US prompt change.
+- **Token Budget**: Claude `max_tokens` raised to 1536 for richer `clinicalImpact` arrays.
+- **Frontend SIG**: Frequency presets migrated to US labels (QD/BID/TID/QID/PRN/QHS) with legacy OD/BD/TDS alias resolution for old records.
+- **Strict schema**: `severity` enum (6 labels), `clinicalImpact` min 2 / max 4, `severityLevel` case normalization.
+- **Normalization**: Alias mapping (Moderate → Potential Interaction, etc.), default `processedBy`, `clinicalImpact` padding, cross-field reconcile (Critical Conflict → high; Verified Safe/Low Risk cannot remain high).
+- **Retry**: One repair pass on parse failure via `ANALYSIS_JSON_REPAIR_PROMPT` multi-turn correction in `interaction-analysis.ts`.
+- **Frontend**: `analysis-schemas.ts` aligned with backend enum constraints.
+- **Validation Result**: `npm run build` and `npm test` (36 tests) pass.

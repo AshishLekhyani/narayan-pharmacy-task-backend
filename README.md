@@ -16,7 +16,7 @@ Express + TypeScript API for prescription persistence, paginated history, and Cl
 
 - **Prescription CRUD** — transactional save of `PrescriptionRecord` + `PrescriptionItem` rows
 - **Paginated history** — server-side search, filters, and global stats
-- **AI analysis** — pharmacy-specific DDI prompt for Narayan Pharmacy (India context)
+- **AI analysis** — pharmacy-specific DDI prompt for Narayan Pharmacy (US dispensing context)
 - **DB cache** — SHA-256 keyed `AnalysisCache` avoids duplicate Claude calls for identical drug combos
 - **Input hardening** — Zod validation, payload size limits, field length caps
 - **Safe errors** — no stack traces in production; Anthropic errors mapped to user-facing messages
@@ -123,7 +123,7 @@ Analyze medications and persist the prescription in one step (primary entry flow
   "patientName": "Jane Doe",
   "date": "2026-06-12",
   "medications": [
-    { "name": "Warfarin", "dosage": "5mg", "frequency": "OD (Once Daily)" }
+    { "name": "Warfarin", "dosage": "5mg", "frequency": "Once daily (QD)" }
   ]
 }
 ```
@@ -141,7 +141,7 @@ Legacy example (no longer accepted):
   "patientName": "Jane Doe",
   "date": "2026-06-12",
   "medications": [
-    { "name": "Warfarin", "dosage": "5mg", "frequency": "OD (Once Daily)" }
+    { "name": "Warfarin", "dosage": "5mg", "frequency": "Once daily (QD)" }
   ],
   "aiAnalysis": {
     "severity": "Verified Safe",

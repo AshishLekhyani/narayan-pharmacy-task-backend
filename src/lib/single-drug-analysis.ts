@@ -13,11 +13,11 @@ export function buildSingleDrugAnalysis(medication: MedicationInput): AnalysisRe
     severityLevel: "low",
     primaryWarning: `Only one medication (${medication.name}) is on this prescription — drug-drug interaction screening does not apply.`,
     recommendation:
-      "Verify dose, frequency, contraindications, allergies, and patient counselling for this single agent before dispensing. Re-run interaction analysis if additional medications are added.",
+      "Verify dose, frequency, contraindications, allergies, and patient counseling for this single agent before dispensing. Re-run interaction analysis if additional medications are added.",
     clinicalImpact: [
-      "No concurrent agents were submitted for interaction screening.",
-      "Standard monotherapy dispensing checks still apply (renal/hepatic adjustment, pregnancy/lactation, duplicate therapy).",
+      "No concurrent agents were submitted for drug-drug interaction screening.",
+      "Standard US monotherapy checks still apply: renal/hepatic dosing, pregnancy/lactation counseling, and duplicate-ingredient review across OTC/Rx products.",
     ],
-    processedBy: "Narayan Pharmacy Rules Engine — No AI Call",
+    processedBy: "Narayan Pharmacy Rules Engine (US) — No AI Call",
   };
 }

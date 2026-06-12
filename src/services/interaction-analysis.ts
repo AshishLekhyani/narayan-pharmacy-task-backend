@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
-  extractJsonFromModelText,
-  parseAnalysisResult,
+  ANALYSIS_JSON_REPAIR_PROMPT,
+  parseModelAnalysisText,
   type AnalysisResultDto,
 } from "../lib/analysis-response";
 import {
@@ -133,6 +133,42 @@ export async function runInteractionAnalysis(
   }
 }
 
+const JSON_ONLY_SYSTEM_PROMPT =
+  'You are a JSON-only clinical drug-interaction engine for Narayan Pharmacy (US-based pharmacy). Use US drug nomenclature and FDA-oriented dispensing standards. Output exactly one JSON object with fields: severityLevel ("high"|"low"), severity (Critical Conflict|Potential Interaction|Low Risk|Verified Safe|Drug Identification Required), primaryWarning, recommendation, clinicalImpact (2-4 strings), processedBy ("Claude API — Narayan Pharmacy DDI Engine (US)"). No markdown. No text outside JSON.';
+
+async function requestClaudeAnalysis(
+  anthropic: Anthropic,
+  medications: MedicationInput[],
+  signal: AbortSignal,
+  repairContext?: { assistantText: string }
+): Promise<string> {
+  const messages: Anthropic.MessageParam[] = repairContext
+    ? [
+        { role: "user", content: buildPharmacyPrompt(medications) },
+        { role: "assistant", content: repairContext.assistantText },
+        { role: "user", content: ANALYSIS_JSON_REPAIR_PROMPT },
+      ]
+    : [{ role: "user", content: buildPharmacyPrompt(medications) }];
+
+  const message = await anthropic.messages.create(
+    {
+      model: CLAUDE_MODEL,
+      max_tokens: 1536,
+      temperature: 0,
+      system: JSON_ONLY_SYSTEM_PROMPT,
+      messages,
+    },
+    { signal }
+  );
+
+  const firstBlock = message.content[0];
+  if (!firstBlock || firstBlock.type !== "text") {
+    throw new AnalysisServiceError(502, "AI Gateway returned an unsupported response format.");
+  }
+
+  return firstBlock.text;
+}
+
 async function runClaudeInteractionAnalysis(
   medications: MedicationInput[],
   cacheKey: string
@@ -141,38 +177,34 @@ async function runClaudeInteractionAnalysis(
   const abortController = new AbortController();
   const timeoutId = setTimeout(() => abortController.abort(), AI_REQUEST_TIMEOUT_MS);
 
-  let message;
-  try {
-    message = await anthropic.messages.create(
-      {
-        model: CLAUDE_MODEL,
-        max_tokens: 1024,
-        temperature: 0,
-        system:
-          "You are a JSON-only clinical drug interaction engine for Narayan Pharmacy. Output exactly one valid JSON object. Never use markdown. Never add prose outside the JSON.",
-        messages: [{ role: "user", content: buildPharmacyPrompt(medications) }],
-      },
-      { signal: abortController.signal }
-    );
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  const firstBlock = message.content[0];
-  if (!firstBlock || firstBlock.type !== "text") {
-    throw new AnalysisServiceError(502, "AI Gateway returned an unsupported response format.");
-  }
-
   let parsedResult: AnalysisResultDto;
   try {
-    const rawJson = extractJsonFromModelText(firstBlock.text);
-    parsedResult = parseAnalysisResult(rawJson);
-  } catch (parseError) {
-    console.error("[Claude Parse Error]:", parseError, "\nRaw output:\n", firstBlock.text);
+    const initialText = await requestClaudeAnalysis(
+      anthropic,
+      medications,
+      abortController.signal
+    );
+
+    try {
+      parsedResult = parseModelAnalysisText(initialText);
+    } catch (firstParseError) {
+      console.warn("[Claude Parse Error] Retrying once with repair prompt:", firstParseError);
+      const repairedText = await requestClaudeAnalysis(anthropic, medications, abortController.signal, {
+        assistantText: initialText,
+      });
+      parsedResult = parseModelAnalysisText(repairedText);
+    }
+  } catch (error) {
+    if (error instanceof AnalysisServiceError) {
+      throw error;
+    }
+    console.error("[Claude Parse Error]:", error);
     throw new AnalysisServiceError(
       502,
       "AI Gateway returned an unparseable clinical report. Please try again."
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   try {
