@@ -49,6 +49,17 @@ npm run db:migrate
 npm run db:generate
 ```
 
+### Failed migration P3018 (index already exists)
+
+If `prisma migrate deploy` fails with `relation "..._idx" already exists`, indexes were likely created by an earlier `db push`. Mark the migration as applied (indexes already present):
+
+```bash
+npx prisma migrate resolve --applied "20260612120000_history_indexes"
+npx prisma migrate status   # should show all migrations applied
+```
+
+Then redeploy on Render.
+
 ## Environment variables
 
 | Variable | Required | Description |
