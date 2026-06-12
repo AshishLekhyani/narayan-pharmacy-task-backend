@@ -204,4 +204,3 @@ Pair with the frontend: set the frontend's `BACKEND_INTERNAL_URL` to this servic
 
 - [`AGENTS.md`](./AGENTS.md) — AI agent operational rules
 - [`MEMORY.md`](./MEMORY.md) — chronological development log
-- [`../README.md`](../README.md) — full-stack setup overview
