@@ -4,9 +4,11 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
+import analyzeAndSaveRoutes from "./routes/analyze-and-save";
 import analyzeRoutes from "./routes/analyze";
 import historyRoutes from "./routes/history";
 import { prisma } from "./lib/database";
+import { mapPrismaError } from "./lib/prisma-errors";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -64,6 +66,7 @@ app.get("/health", async (_req: Request, res: Response) => {
 
 // === 6. Core API Routes ===
 app.use("/api/analyze", analyzeRoutes);
+app.use("/api/prescriptions/analyze-and-save", analyzeAndSaveRoutes);
 app.use("/api/history", historyRoutes);
 
 app.use((_req: Request, res: Response) => {
@@ -72,19 +75,41 @@ app.use((_req: Request, res: Response) => {
 
 // === 7. Global Error Handler Middleware ===
 // Catch unhandled route errors and prevent stack trace leakage in production.
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   console.error("[Unhandled Server Error]:", err);
-  
-  const statusCode = err.status || 500;
+
+  const prismaMapped = mapPrismaError(err);
+  if (prismaMapped) {
+    return res.status(prismaMapped.status).json({ status: "error", message: prismaMapped.message });
+  }
+
+  const statusCode =
+    typeof err === "object" && err !== null && "status" in err && typeof (err as { status: unknown }).status === "number"
+      ? (err as { status: number }).status
+      : 500;
   const isProd = process.env.NODE_ENV === "production";
-  
-  res.status(statusCode).json({
-    status: "error",
-    message: isProd ? "An internal server error occurred." : err.message,
-  });
+  const message =
+    !isProd && err instanceof Error ? err.message : "An internal server error occurred.";
+
+  res.status(statusCode).json({ status: "error", message });
 });
 
 // === 8. Server Initialization ===
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[server]: Clinical Backend running at http://localhost:${PORT}`);
 });
+
+async function shutdown(signal: string) {
+  console.log(`[server]: ${signal} received — closing HTTP server and database pool.`);
+  server.close(async () => {
+    try {
+      await prisma.$disconnect();
+    } catch (err) {
+      console.error("[server]: Prisma disconnect error:", err);
+    }
+    process.exit(0);
+  });
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

@@ -12,6 +12,18 @@ export const analysisResultSchema = z.object({
 
 export type AnalysisResultDto = z.infer<typeof analysisResultSchema>;
 
+/** Fields persisted on PrescriptionRecord when saving after analysis. */
+export const storedAiAnalysisSchema = z.object({
+  severity: analysisResultSchema.shape.severity,
+  severityLevel: analysisResultSchema.shape.severityLevel,
+  primaryWarning: analysisResultSchema.shape.primaryWarning,
+  recommendation: analysisResultSchema.shape.recommendation,
+  clinicalImpact: analysisResultSchema.shape.clinicalImpact,
+  processedBy: analysisResultSchema.shape.processedBy,
+});
+
+export type StoredAiAnalysisDto = z.infer<typeof storedAiAnalysisSchema>;
+
 /** Strip markdown code fences and extract the JSON object Claude sometimes wraps. */
 export function extractJsonFromModelText(text: string): unknown {
   const trimmed = text.trim();

@@ -88,3 +88,34 @@
 
 ### [June 12, 2026 - 5:30 PM] Unrecognized Drug Handling in Claude Prompt
 - **Prompt Guardrail**: Analyze prompt now instructs Claude to flag unrecognizable or fictional drug names, refuse to invent interactions, and return `severity: "Drug Identification Required"` with pharmacist verification guidance instead of hallucinating DDI data.
+
+### [June 12, 2026 - 6:00 PM] Architecture & Code Quality Refactor
+- **Lib Layer**: Added `constants.ts`, `http.ts` (`sendError`/`sendSuccess`), `payload.ts` (`pickMedicationList`), `analyze-cache.ts`, `analyze-prompt.ts`.
+- **Route Slimming**: `analyze.ts` delegates cache, prompt, and Anthropic client init; `history.ts` uses shared HTTP helpers and `storedAiAnalysisSchema` (unified with analyze response shape).
+- **Validation**: `clinicalMedicationSchema` now attaches field-level Zod paths (`name` / `dosage` / `frequency`).
+- **Ops**: Graceful shutdown on `SIGTERM`/`SIGINT` with `prisma.$disconnect()`.
+- **Validation Result**: `npm run build` passes.
+
+### [June 12, 2026 - 7:15 PM] Second-Pass Quality & Filter Semantics
+- **Filter Semantics**: `flagged` / `safe` filters and dashboard stats now use explicit safe status labels (excludes unanalyzed records from “safe”).
+- **Prisma Errors**: `prisma-errors.ts` maps known DB failures to 4xx/503; used in history routes and global handler.
+- **AI Timeout**: Analyze route aborts Claude calls after 90s (`AbortController`).
+- **Mapper Extract**: `history-mapper.ts` holds `mapPrescriptionRecord`.
+- **Indexes**: `PrescriptionItem.prescriptionRecordId` index for list joins.
+- **Tests**: `history-query.test.ts` (+5 tests → 21 total).
+- **Constants**: `clinical-input.ts` uses shared `MAX_*` from `constants.ts`.
+- **Validation Result**: `npm run build` and `npm test` pass.
+
+### [June 12, 2026 - 6:45 PM] Tests, Stats Endpoint, DB Index & Migration Fix
+- **Stats API**: `GET /api/history/stats` via `history-stats.ts`; list `GET /api/history` no longer runs four global counts per page.
+- **Cache Key**: Pure `analyze-cache-key.ts` split from Prisma-backed `analyze-cache.ts` (testable without `DATABASE_URL`).
+- **Tests**: Vitest suite — 16 tests for `clinical-input`, `analysis-response`, and cache key fingerprinting (`npm test`).
+- **DB**: Index on `PrescriptionItem.medicationName` (migration `20260612180000_medication_name_index`).
+- **Migration Fix**: `20260611150000_add_analysis_cache` no-op — table already created in init migration (fixes clean deploy P3018 risk).
+- **Validation Result**: `npm run build` and `npm test` pass.
+
+### [June 12, 2026 - 8:15 PM] Atomic Analyze+Save Endpoint (#4)
+- **Service Layer**: `interaction-analysis.ts` centralizes single-drug rules engine, Claude call, and cache lookup; `prescription-service.ts` owns `createPrescriptionRecord()`; `analyze-and-save.ts` orchestrates analyze-then-save in one transaction path.
+- **New Route**: `POST /api/prescriptions/analyze-and-save` returns `{ analysis, record }` so the client no longer risks saving without a matching analysis.
+- **Refactor**: `analyze.ts` and `history.ts` POST reuse shared services; `single-drug-analysis.ts` mirrors frontend single-medication severity logic server-side.
+- **Validation Result**: `npm run build` and `npm test` (21 tests) pass.

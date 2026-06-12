@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { buildFlaggedAnalysisWhere, buildSafeAnalysisWhere } from "./history-filters";
 
 export const HISTORY_PAGE_SIZE = 10;
 export const HISTORY_MAX_PAGE_SIZE = 50;
@@ -38,11 +39,9 @@ export function buildHistoryWhere(
   if (filter === "high") {
     conditions.push({ analysisSeverityLevel: "high" });
   } else if (filter === "flagged") {
-    conditions.push({ analysisStatusLabel: { not: null } });
+    conditions.push(buildFlaggedAnalysisWhere());
   } else if (filter === "safe") {
-    conditions.push({
-      NOT: { analysisSeverityLevel: "high" },
-    });
+    conditions.push(buildSafeAnalysisWhere());
   }
 
   if (conditions.length === 0) {

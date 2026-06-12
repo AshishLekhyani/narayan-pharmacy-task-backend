@@ -1,28 +1,30 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { storedAiAnalysisSchema } from "../lib/analysis-response";
+import {
+  clinicalMedicationSchema,
+  clinicalPatientNameSchema,
+} from "../lib/clinical-input";
+import {
+  MAX_BATCH_DELETE_IDS,
+  MAX_MEDICATIONS_PER_PRESCRIPTION,
+} from "../lib/constants";
 import { prisma } from "../lib/database";
 import {
   buildHistoryWhere,
   historyListQuerySchema,
 } from "../lib/history-query";
+import { mapPrescriptionRecord } from "../lib/history-mapper";
+import { getGlobalHistoryStats } from "../lib/history-stats";
+import { firstZodIssueMessage, sendError, sendSuccess } from "../lib/http";
+import { mapPrismaError } from "../lib/prisma-errors";
+import { pickMedicationList } from "../lib/payload";
 import {
-  clinicalMedicationSchema,
-  clinicalPatientNameSchema,
-} from "../lib/clinical-input";
+  createPrescriptionRecord,
+  PrescriptionServiceError,
+} from "../services/prescription-service";
 
 const router = Router();
-
-const MAX_MEDICATIONS = 50;
-
-const aiAnalysisSchema = z.object({
-  severity: z.string().trim().max(200).optional(),
-  severityLevel: z.enum(["high", "low"]).optional(),
-  recommendation: z.string().trim().max(5000).optional(),
-  primaryWarning: z.string().trim().max(2000).optional(),
-  clinicalImpact: z.array(z.string().trim().max(1000)).max(20).optional(),
-  processedBy: z.string().trim().max(200).optional(),
-});
 
 const historySchema = z
   .object({
@@ -31,14 +33,14 @@ const historySchema = z
     medications: z
       .array(clinicalMedicationSchema)
       .min(1, "At least one medication must be included.")
-      .max(MAX_MEDICATIONS)
+      .max(MAX_MEDICATIONS_PER_PRESCRIPTION)
       .optional(),
     prescriptions: z
       .array(clinicalMedicationSchema)
       .min(1, "At least one medication must be included.")
-      .max(MAX_MEDICATIONS)
+      .max(MAX_MEDICATIONS_PER_PRESCRIPTION)
       .optional(),
-    aiAnalysis: aiAnalysisSchema.nullish(),
+    aiAnalysis: storedAiAnalysisSchema.nullish(),
   })
   .superRefine((value, ctx) => {
     if (!value.medications && !value.prescriptions) {
@@ -50,84 +52,33 @@ const historySchema = z
     }
   });
 
-type HistoryPayload = z.infer<typeof historySchema>;
-
-function mapRecord(record: {
-  id: number;
-  patientName: string;
-  prescribedAt: Date;
-  analysisStatusLabel: string | null;
-  analysisSeverityLevel: string | null;
-  analysisRecommendation: string | null;
-  analysisPrimaryWarning: string | null;
-  analysisClinicalImpact: Prisma.JsonValue | null;
-  analysisProcessedBy: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  items: Array<{
-    id: number;
-    medicationName: string;
-    dosage: string;
-    frequency: string;
-  }>;
-}) {
-  const clinicalImpact = Array.isArray(record.analysisClinicalImpact)
-    ? record.analysisClinicalImpact.filter((value): value is string => typeof value === "string")
-    : [];
-
-  return {
-    id: record.id,
-    patientName: record.patientName,
-    prescribedAt: record.prescribedAt,
-    medications: record.items.map((item) => ({
-      id: item.id,
-      name: item.medicationName,
-      dosage: item.dosage,
-      frequency: item.frequency,
-    })),
-    analysis: {
-      statusLabel: record.analysisStatusLabel,
-      severityLevel: record.analysisSeverityLevel,
-      recommendation: record.analysisRecommendation,
-      primaryWarning: record.analysisPrimaryWarning,
-      clinicalImpact,
-      processedBy: record.analysisProcessedBy,
-    },
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-  };
-}
-
-function getMedications(payload: HistoryPayload) {
-  return payload.medications ?? payload.prescriptions ?? [];
-}
-
-async function getGlobalStats() {
-  const [totalRecords, severeAlerts, aiFlagged, safeCount] = await Promise.all([
-    prisma.prescriptionRecord.count(),
-    prisma.prescriptionRecord.count({ where: { analysisSeverityLevel: "high" } }),
-    prisma.prescriptionRecord.count({ where: { analysisStatusLabel: { not: null } } }),
-    prisma.prescriptionRecord.count({ where: { NOT: { analysisSeverityLevel: "high" } } }),
-  ]);
-
-  const validationRate =
-    totalRecords === 0 ? 0 : Math.round((safeCount / totalRecords) * 1000) / 10;
-
-  return { totalRecords, severeAlerts, aiFlagged, validationRate };
-}
-
 const batchDeleteSchema = z.object({
-  ids: z.array(z.coerce.number().int().positive()).min(1, "Select at least one record to delete.").max(100),
+  ids: z
+    .array(z.coerce.number().int().positive())
+    .min(1, "Select at least one record to delete.")
+    .max(MAX_BATCH_DELETE_IDS),
+});
+
+router.get("/stats", async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const stats = await getGlobalHistoryStats();
+    return sendSuccess(res, stats);
+  } catch (error) {
+    const mapped = mapPrismaError(error);
+    if (mapped) return sendError(res, mapped.status, mapped.message);
+    next(error);
+  }
 });
 
 router.delete("/batch", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validationResult = batchDeleteSchema.safeParse(req.body);
     if (!validationResult.success) {
-      return res.status(400).json({
-        status: "error",
-        message: validationResult.error.issues[0]?.message ?? "Invalid delete payload.",
-      });
+      return sendError(
+        res,
+        400,
+        firstZodIssueMessage(validationResult.error, "Invalid delete payload.")
+      );
     }
 
     const { ids } = validationResult.data;
@@ -137,11 +88,10 @@ router.delete("/batch", async (req: Request, res: Response, next: NextFunction) 
       where: { id: { in: uniqueIds } },
     });
 
-    res.status(200).json({
-      status: "success",
-      data: { deletedCount: result.count, requestedIds: uniqueIds },
-    });
+    return sendSuccess(res, { deletedCount: result.count, requestedIds: uniqueIds });
   } catch (error) {
+    const mapped = mapPrismaError(error);
+    if (mapped) return sendError(res, mapped.status, mapped.message);
     next(error);
   }
 });
@@ -150,17 +100,18 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsedQuery = historyListQuerySchema.safeParse(req.query);
     if (!parsedQuery.success) {
-      return res.status(400).json({
-        status: "error",
-        message: parsedQuery.error.issues[0]?.message ?? "Invalid query parameters.",
-      });
+      return sendError(
+        res,
+        400,
+        firstZodIssueMessage(parsedQuery.error, "Invalid query parameters.")
+      );
     }
 
     const { page, limit, search, filter } = parsedQuery.data;
     const where = buildHistoryWhere(search, filter);
     const skip = (page - 1) * limit;
 
-    const [records, total, stats] = await Promise.all([
+    const [records, total] = await Promise.all([
       prisma.prescriptionRecord.findMany({
         where,
         include: { items: true },
@@ -169,12 +120,11 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
         take: limit,
       }),
       prisma.prescriptionRecord.count({ where }),
-      getGlobalStats(),
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       status: "success",
-      data: records.map(mapRecord),
+      data: records.map(mapPrescriptionRecord),
       meta: {
         page,
         pageSize: limit,
@@ -183,9 +133,10 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
         filter,
         search: search ?? "",
       },
-      stats,
     });
   } catch (error) {
+    const mapped = mapPrismaError(error);
+    if (mapped) return sendError(res, mapped.status, mapped.message);
     next(error);
   }
 });
@@ -194,55 +145,30 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validationResult = historySchema.safeParse(req.body);
     if (!validationResult.success) {
-      return res.status(400).json({
-        status: "error",
-        message: validationResult.error.issues[0]?.message ?? "Invalid prescription payload.",
-      });
+      return sendError(
+        res,
+        400,
+        firstZodIssueMessage(validationResult.error, "Invalid prescription payload.")
+      );
     }
 
     const { patientName, date, aiAnalysis } = validationResult.data;
-    const medications = getMedications(validationResult.data);
+    const medications = pickMedicationList(validationResult.data);
 
-    let prescribedAt: Date | undefined;
-    if (date) {
-      const parsedDate = new Date(date);
-      if (Number.isNaN(parsedDate.getTime())) {
-        return res.status(400).json({
-          status: "error",
-          message: "Invalid prescription date.",
-        });
-      }
-      prescribedAt = parsedDate;
-    }
-
-    const newRecord = await prisma.$transaction(async (tx) => {
-      return tx.prescriptionRecord.create({
-        data: {
-          patientName,
-          prescribedAt,
-          analysisStatusLabel: aiAnalysis?.severity,
-          analysisSeverityLevel: aiAnalysis?.severityLevel,
-          analysisRecommendation: aiAnalysis?.recommendation,
-          analysisPrimaryWarning: aiAnalysis?.primaryWarning,
-          analysisClinicalImpact: aiAnalysis?.clinicalImpact ?? undefined,
-          analysisProcessedBy: aiAnalysis?.processedBy,
-          items: {
-            create: medications.map((medication) => ({
-              medicationName: medication.name,
-              dosage: medication.dosage,
-              frequency: medication.frequency,
-            })),
-          },
-        },
-        include: { items: true },
-      });
+    const record = await createPrescriptionRecord({
+      patientName,
+      date,
+      medications,
+      aiAnalysis: aiAnalysis ?? null,
     });
 
-    res.status(201).json({
-      status: "success",
-      data: mapRecord(newRecord),
-    });
+    return sendSuccess(res, record, 201);
   } catch (error) {
+    if (error instanceof PrescriptionServiceError) {
+      return sendError(res, error.status, error.message);
+    }
+    const mapped = mapPrismaError(error);
+    if (mapped) return sendError(res, mapped.status, mapped.message);
     next(error);
   }
 });

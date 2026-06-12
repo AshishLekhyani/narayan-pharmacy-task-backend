@@ -36,6 +36,9 @@ model PrescriptionItem {
   frequency            String
   prescriptionRecordId Int
   prescriptionRecord   PrescriptionRecord  @relation(fields: [prescriptionRecordId], references: [id], onDelete: Cascade)
+
+  @@index([medicationName])
+  @@index([prescriptionRecordId])
 }
 
 /// Caches Claude AI interaction results keyed by a canonical sorted drug fingerprint.
