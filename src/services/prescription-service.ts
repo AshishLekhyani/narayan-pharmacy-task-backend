@@ -2,6 +2,7 @@ import type { StoredAiAnalysisDto } from "../lib/analysis-response";
 import { prisma } from "../lib/database";
 import { mapPrescriptionRecord } from "../lib/history-mapper";
 import type { MedicationInput } from "../lib/medication-input";
+import { parsePrescriptionDateToUtc } from "../lib/prescription-date";
 
 export type { MedicationInput };
 
@@ -13,11 +14,11 @@ export async function createPrescriptionRecord(input: {
 }) {
   let prescribedAt: Date | undefined;
   if (input.date) {
-    const parsedDate = new Date(input.date);
-    if (Number.isNaN(parsedDate.getTime())) {
+    try {
+      prescribedAt = parsePrescriptionDateToUtc(input.date);
+    } catch {
       throw new PrescriptionServiceError(400, "Invalid prescription date.");
     }
-    prescribedAt = parsedDate;
   }
 
   const aiAnalysis = input.aiAnalysis;
