@@ -173,6 +173,8 @@ npm run build
 npm start
 ```
 
+> **Render note:** If `NODE_ENV=production` is set during the build phase, npm skips `devDependencies`. This repo keeps `typescript`, `prisma`, and `@types/*` in `dependencies` so production builds succeed. Alternatively, set `NPM_CONFIG_PRODUCTION=false` for the build step on Render.
+
 - `postinstall` runs `prisma generate`
 - `prestart` runs `prisma migrate deploy`
 

@@ -43,7 +43,7 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter);
 
 // === 5. Health Check ===
-app.get("/health", async (_req, res) => {
+app.get("/health", async (_req: Request, res: Response) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.status(200).json({
@@ -66,7 +66,7 @@ app.get("/health", async (_req, res) => {
 app.use("/api/analyze", analyzeRoutes);
 app.use("/api/history", historyRoutes);
 
-app.use((_req, res) => {
+app.use((_req: Request, res: Response) => {
   res.status(404).json({ status: "error", message: "Route not found." });
 });
 
