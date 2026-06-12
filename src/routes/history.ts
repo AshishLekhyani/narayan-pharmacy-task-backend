@@ -6,17 +6,14 @@ import {
   buildHistoryWhere,
   historyListQuerySchema,
 } from "../lib/history-query";
+import {
+  clinicalMedicationSchema,
+  clinicalPatientNameSchema,
+} from "../lib/clinical-input";
 
 const router = Router();
 
 const MAX_MEDICATIONS = 50;
-const MAX_PATIENT_NAME = 200;
-
-const medicationSchema = z.object({
-  name: z.string().trim().min(1, "Drug name is required.").max(200),
-  dosage: z.string().trim().min(1, "Dosage is required.").max(100),
-  frequency: z.string().trim().min(1, "Frequency is required.").max(100),
-});
 
 const aiAnalysisSchema = z.object({
   severity: z.string().trim().max(200).optional(),
@@ -29,19 +26,15 @@ const aiAnalysisSchema = z.object({
 
 const historySchema = z
   .object({
-    patientName: z
-      .string()
-      .trim()
-      .min(2, "Patient name must be at least 2 characters.")
-      .max(MAX_PATIENT_NAME),
+    patientName: clinicalPatientNameSchema,
     date: z.string().trim().max(32).optional(),
     medications: z
-      .array(medicationSchema)
+      .array(clinicalMedicationSchema)
       .min(1, "At least one medication must be included.")
       .max(MAX_MEDICATIONS)
       .optional(),
     prescriptions: z
-      .array(medicationSchema)
+      .array(clinicalMedicationSchema)
       .min(1, "At least one medication must be included.")
       .max(MAX_MEDICATIONS)
       .optional(),
@@ -122,6 +115,36 @@ async function getGlobalStats() {
 
   return { totalRecords, severeAlerts, aiFlagged, validationRate };
 }
+
+const batchDeleteSchema = z.object({
+  ids: z.array(z.coerce.number().int().positive()).min(1, "Select at least one record to delete.").max(100),
+});
+
+router.delete("/batch", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validationResult = batchDeleteSchema.safeParse(req.body);
+    if (!validationResult.success) {
+      return res.status(400).json({
+        status: "error",
+        message: validationResult.error.issues[0]?.message ?? "Invalid delete payload.",
+      });
+    }
+
+    const { ids } = validationResult.data;
+    const uniqueIds = [...new Set(ids)];
+
+    const result = await prisma.prescriptionRecord.deleteMany({
+      where: { id: { in: uniqueIds } },
+    });
+
+    res.status(200).json({
+      status: "success",
+      data: { deletedCount: result.count, requestedIds: uniqueIds },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {

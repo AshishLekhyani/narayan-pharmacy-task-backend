@@ -76,3 +76,15 @@
 - **Env Template**: Expanded `.env.example` with `ANTHROPIC_MODEL` and CORS documentation.
 - **README**: Created `Backend/README.md` with API reference, database setup, env vars, and production checklist.
 - **Validation Result**: `npm run build` and `npm run verify:secrets` pass; smoke tests confirm health (DB connected), history GET/POST, analyze `400` (1 drug), analyze `503` (no API key).
+
+### [June 12, 2026 - 4:30 PM] Batch Delete API & Analysis Cache Upsert
+- **Batch Delete**: Added `DELETE /api/history/batch` with Zod-validated `ids[]` (max 100); cascades `PrescriptionItem` rows via schema `onDelete: Cascade`.
+- **Cache Hardening**: Replaced fire-and-forget `analysisCache.create` with awaited `upsert` so repeat drug combos reliably hit cache and avoid duplicate Claude charges.
+- **Validation Result**: `npm run build` passes.
+
+### [June 12, 2026 - 5:15 PM] Clinical Input Validation on API
+- **Shared Validator**: Added `src/lib/clinical-input.ts` — patient name, drug name, dosage pattern, frequency, and junk-value blocklist (`test`, `asdf`, etc.).
+- **Applied To**: `POST /api/history` and `POST /api/analyze` medication payloads now reject rubbish data server-side even if the client is bypassed.
+
+### [June 12, 2026 - 5:30 PM] Unrecognized Drug Handling in Claude Prompt
+- **Prompt Guardrail**: Analyze prompt now instructs Claude to flag unrecognizable or fictional drug names, refuse to invent interactions, and return `severity: "Drug Identification Required"` with pharmacist verification guidance instead of hallucinating DDI data.

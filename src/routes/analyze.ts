@@ -9,6 +9,7 @@ import {
   parseAnalysisResult,
   toPublicAnalysisResponse,
 } from "../lib/analysis-response";
+import { clinicalMedicationSchema } from "../lib/clinical-input";
 
 const router = Router();
 const anthropic = new Anthropic({
@@ -17,16 +18,10 @@ const anthropic = new Anthropic({
 
 const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
-const medicationEntrySchema = z.object({
-  name: z.string().trim().min(1, "Drug name is required").max(200),
-  dosage: z.string().trim().min(1, "Dosage is required").max(100),
-  frequency: z.string().trim().min(1, "Frequency is required").max(100),
-});
-
 const analyzeSchema = z
   .object({
-    drugs: z.array(medicationEntrySchema).max(50).optional(),
-    medications: z.array(medicationEntrySchema).max(50).optional(),
+    drugs: z.array(clinicalMedicationSchema).max(50).optional(),
+    medications: z.array(clinicalMedicationSchema).max(50).optional(),
   })
   .superRefine((val, ctx) => {
     const list = val.medications ?? val.drugs ?? [];
@@ -79,11 +74,16 @@ Severity guidance:
 - "high" / "Critical Conflict" — major or contraindicated interaction; do not dispense without pharmacist review
 - "low" / "Potential Interaction" or "Low Risk" — minor/moderate concern with actionable counselling
 - "Verified Safe" — no clinically meaningful interaction identified for this combination
+- "Drug Identification Required" — use when any drug name is unrecognizable, clearly fictional, or cannot be mapped to a known generic/brand; do NOT invent interactions for mystery drugs
+
+Unrecognized or made-up drug names:
+- If you cannot confidently identify a drug as a real medication (allowing common Indian brand/generic spelling variants), you MUST NOT fabricate drug-drug interactions involving it.
+- Return severityLevel "low", severity "Drug Identification Required", name the unverified drug(s) in primaryWarning, and recommend spelling verification, prescriber callback, and holding dispensing until the agent is confirmed.
 
 Respond ONLY with a valid JSON object — no markdown fences, no commentary, no trailing text:
 {
   "severityLevel": "high" | "low",
-  "severity": "Critical Conflict" | "Potential Interaction" | "Low Risk" | "Verified Safe",
+  "severity": "Critical Conflict" | "Potential Interaction" | "Low Risk" | "Verified Safe" | "Drug Identification Required",
   "primaryWarning": "<one sentence naming the key drug pair and interaction mechanism>",
   "recommendation": "<one to two sentences of practical dispensing guidance for the Narayan Pharmacy pharmacist>",
   "clinicalImpact": ["<pharmacological mechanism>", "<patient-facing clinical consequence>"],
@@ -183,9 +183,15 @@ router.post("/", aiLimiter, async (req: Request, res: Response, next: NextFuncti
       });
     }
 
-    prisma.analysisCache
-      .create({ data: { cacheKey, result: parsedResult } })
-      .catch((err) => console.error("[Cache Write Error]:", err));
+    try {
+      await prisma.analysisCache.upsert({
+        where: { cacheKey },
+        create: { cacheKey, result: parsedResult },
+        update: { result: parsedResult },
+      });
+    } catch (cacheWriteError) {
+      console.error("[Cache Write Error]:", cacheWriteError);
+    }
 
     return res.status(200).json(toPublicAnalysisResponse(parsedResult, false));
   } catch (error) {
