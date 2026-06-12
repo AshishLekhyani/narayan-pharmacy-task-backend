@@ -1,12 +1,13 @@
 import { Router, Request, Response, NextFunction } from "express";
-import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import {
   clinicalMedicationSchema,
   clinicalPatientNameSchema,
+  clinicalPrescriptionDateSchema,
 } from "../lib/clinical-input";
 import { MAX_MEDICATIONS_PER_PRESCRIPTION } from "../lib/constants";
 import { firstZodIssueMessage, sendError, sendSuccess } from "../lib/http";
+import { aiAnalysisLimiter } from "../lib/rate-limiters";
 import { mapPrismaError } from "../lib/prisma-errors";
 import { analyzeAndSavePrescription } from "../services/analyze-and-save";
 import {
@@ -19,20 +20,14 @@ const router = Router();
 
 const analyzeAndSaveSchema = z.object({
   patientName: clinicalPatientNameSchema,
-  date: z.string().trim().min(1, "Prescription date is required.").max(32),
+  date: clinicalPrescriptionDateSchema,
   medications: z
     .array(clinicalMedicationSchema)
     .min(1, "Add at least one medication before running analysis.")
     .max(MAX_MEDICATIONS_PER_PRESCRIPTION),
 });
 
-const aiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 10,
-  message: { status: "error", message: "AI Analysis rate limit exceeded. Please wait before retrying." },
-});
-
-router.post("/", aiLimiter, async (req: Request, res: Response, next: NextFunction) => {
+router.post("/", aiAnalysisLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validationResult = analyzeAndSaveSchema.safeParse(req.body);
     if (!validationResult.success) {

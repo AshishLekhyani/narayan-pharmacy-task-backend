@@ -114,9 +114,27 @@ Paginated prescription list.
 
 Response includes `data[]`, `meta` (pagination), and global `stats`.
 
-### `POST /api/history`
+### `POST /api/prescriptions/analyze-and-save`
 
-Create a prescription record.
+Analyze medications and persist the prescription in one step (primary entry flow).
+
+```json
+{
+  "patientName": "Jane Doe",
+  "date": "2026-06-12",
+  "medications": [
+    { "name": "Warfarin", "dosage": "5mg", "frequency": "OD (Once Daily)" }
+  ]
+}
+```
+
+Returns `{ status: "success", data: { analysis, record } }`.
+
+### `POST /api/history` (deprecated)
+
+Returns **410 Gone**. Use `POST /api/prescriptions/analyze-and-save` instead.
+
+Legacy example (no longer accepted):
 
 ```json
 {

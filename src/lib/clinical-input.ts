@@ -104,6 +104,30 @@ export function validateMedicationEntry(entry: {
   );
 }
 
+export function validatePrescriptionDate(date: string): string | null {
+  const trimmed = date.trim();
+  if (!trimmed) return "Prescription date is required.";
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return "Invalid prescription date.";
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  if (parsed > today) return "Prescription date cannot be in the future.";
+  if (parsed.getFullYear() < 1900) return "Prescription date is too far in the past.";
+  return null;
+}
+
+export const clinicalPrescriptionDateSchema = z
+  .string()
+  .trim()
+  .min(1, "Prescription date is required.")
+  .max(32)
+  .superRefine((value, ctx) => {
+    const message = validatePrescriptionDate(value);
+    if (message) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    }
+  });
+
 export const clinicalPatientNameSchema = z
   .string()
   .trim()

@@ -1,12 +1,9 @@
 import type { StoredAiAnalysisDto } from "../lib/analysis-response";
 import { prisma } from "../lib/database";
 import { mapPrescriptionRecord } from "../lib/history-mapper";
+import type { MedicationInput } from "../lib/medication-input";
 
-export type MedicationInput = {
-  name: string;
-  dosage: string;
-  frequency: string;
-};
+export type { MedicationInput };
 
 export async function createPrescriptionRecord(input: {
   patientName: string;

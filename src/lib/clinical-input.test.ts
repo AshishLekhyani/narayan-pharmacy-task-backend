@@ -5,6 +5,7 @@ import {
   validateDosage,
   validateFrequency,
   validatePatientName,
+  validatePrescriptionDate,
 } from "./clinical-input";
 
 describe("validatePatientName", () => {
@@ -49,6 +50,23 @@ describe("validateFrequency", () => {
 
   it("rejects junk", () => {
     expect(validateFrequency("xxx")).toMatch(/valid frequency/i);
+  });
+});
+
+describe("validatePrescriptionDate", () => {
+  it("accepts today", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    expect(validatePrescriptionDate(today)).toBeNull();
+  });
+
+  it("rejects future dates", () => {
+    const future = new Date();
+    future.setFullYear(future.getFullYear() + 1);
+    expect(validatePrescriptionDate(future.toISOString().slice(0, 10))).toMatch(/future/i);
+  });
+
+  it("rejects dates before 1900", () => {
+    expect(validatePrescriptionDate("1899-12-31")).toMatch(/past/i);
   });
 });
 

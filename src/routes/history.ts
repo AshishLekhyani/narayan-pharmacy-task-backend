@@ -1,14 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { storedAiAnalysisSchema } from "../lib/analysis-response";
-import {
-  clinicalMedicationSchema,
-  clinicalPatientNameSchema,
-} from "../lib/clinical-input";
-import {
-  MAX_BATCH_DELETE_IDS,
-  MAX_MEDICATIONS_PER_PRESCRIPTION,
-} from "../lib/constants";
+import { MAX_BATCH_DELETE_IDS } from "../lib/constants";
 import { prisma } from "../lib/database";
 import {
   buildHistoryWhere,
@@ -18,39 +10,7 @@ import { mapPrescriptionRecord } from "../lib/history-mapper";
 import { getGlobalHistoryStats } from "../lib/history-stats";
 import { firstZodIssueMessage, sendError, sendSuccess } from "../lib/http";
 import { mapPrismaError } from "../lib/prisma-errors";
-import { pickMedicationList } from "../lib/payload";
-import {
-  createPrescriptionRecord,
-  PrescriptionServiceError,
-} from "../services/prescription-service";
-
 const router = Router();
-
-const historySchema = z
-  .object({
-    patientName: clinicalPatientNameSchema,
-    date: z.string().trim().max(32).optional(),
-    medications: z
-      .array(clinicalMedicationSchema)
-      .min(1, "At least one medication must be included.")
-      .max(MAX_MEDICATIONS_PER_PRESCRIPTION)
-      .optional(),
-    prescriptions: z
-      .array(clinicalMedicationSchema)
-      .min(1, "At least one medication must be included.")
-      .max(MAX_MEDICATIONS_PER_PRESCRIPTION)
-      .optional(),
-    aiAnalysis: storedAiAnalysisSchema.nullish(),
-  })
-  .superRefine((value, ctx) => {
-    if (!value.medications && !value.prescriptions) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["medications"],
-        message: "At least one medication must be included.",
-      });
-    }
-  });
 
 const batchDeleteSchema = z.object({
   ids: z
@@ -141,36 +101,25 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-router.post("/", async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const validationResult = historySchema.safeParse(req.body);
-    if (!validationResult.success) {
-      return sendError(
-        res,
-        400,
-        firstZodIssueMessage(validationResult.error, "Invalid prescription payload.")
-      );
-    }
-
-    const { patientName, date, aiAnalysis } = validationResult.data;
-    const medications = pickMedicationList(validationResult.data);
-
-    const record = await createPrescriptionRecord({
-      patientName,
-      date,
-      medications,
-      aiAnalysis: aiAnalysis ?? null,
-    });
-
-    return sendSuccess(res, record, 201);
-  } catch (error) {
-    if (error instanceof PrescriptionServiceError) {
-      return sendError(res, error.status, error.message);
-    }
-    const mapped = mapPrismaError(error);
-    if (mapped) return sendError(res, mapped.status, mapped.message);
-    next(error);
+router.post("/", (req: Request, res: Response) => {
+  if (
+    req.body &&
+    typeof req.body === "object" &&
+    "aiAnalysis" in req.body &&
+    (req.body as { aiAnalysis?: unknown }).aiAnalysis != null
+  ) {
+    return sendError(
+      res,
+      400,
+      "Direct saves with client-supplied analysis are not allowed. Use POST /api/prescriptions/analyze-and-save."
+    );
   }
+
+  return sendError(
+    res,
+    410,
+    "Manual prescription saves are deprecated. Use POST /api/prescriptions/analyze-and-save to analyze and persist in one step."
+  );
 });
 
 export default router;

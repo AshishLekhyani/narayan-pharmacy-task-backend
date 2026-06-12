@@ -41,8 +41,9 @@ npm run db:generate  # refresh client
 |--------|------|---------|
 | GET | `/health` | Liveness check |
 | GET | `/api/history` | List up to 100 `PrescriptionRecord` rows with nested `medications[]` + `analysis` DTO |
-| POST | `/api/history` | Create record + items (accepts `medications` or legacy `prescriptions`) |
-| POST | `/api/analyze` | Claude DDI check (min 2 drugs); DB cache lookup first |
+| POST | `/api/prescriptions/analyze-and-save` | Analyze (rules engine or Claude) + persist record in one orchestrated step |
+| POST | `/api/history` | **Deprecated (410)** — use analyze-and-save instead |
+| POST | `/api/analyze` | Analyze-only (min 1 drug); DB cache lookup first; no persist |
 
 ### Response shapes
 - Success: `{ status: "success", data: ... }`
@@ -50,7 +51,7 @@ npm run db:generate  # refresh client
 
 ### Analyze behavior
 - Returns `503` when `ANTHROPIC_API_KEY` is unset (expected in local dev until key is added).
-- Returns `400` when fewer than 2 medications submitted — **no Claude call is made**.
+- Single-drug requests use the rules engine (no Claude). Multi-drug requests use Claude + cache.
 - DB cache (`AnalysisCache`) keyed by SHA-256 of sorted medication fingerprint; cache read failure falls back to live API.
 - Cache hit adds `cachedResult: true` to response JSON (frontend shows "Retrieved from cache", not raw JSON).
 - Anthropic SDK errors (401/429/503/529) mapped to safe `{ status: "error", message }` responses.
@@ -63,9 +64,14 @@ Backend/
 ├── prisma/migrations/         # Versioned SQL
 ├── src/index.ts               # Express bootstrap, security middleware
 ├── src/lib/database.ts        # Prisma + pg pool (SSL-normalized)
+├── src/services/
+│   ├── interaction-analysis.ts  # Rules engine + Claude + cache
+│   ├── analyze-and-save.ts      # Orchestrated analyze then persist
+│   └── prescription-service.ts  # Prisma record create
 └── src/routes/
-    ├── history.ts             # CRUD for prescription records
-    └── analyze.ts             # Claude + AnalysisCache
+    ├── analyze-and-save.ts      # POST analyze + save
+    ├── history.ts               # List/stats/batch delete (create deprecated)
+    └── analyze.ts               # Analyze-only endpoint
 ```
 
 Routes stay thin; extract to `src/services/` only when logic grows beyond ~80 lines.
@@ -88,9 +94,9 @@ Routes stay thin; extract to `src/services/` only when logic grows beyond ~80 li
 - [ ] `npx tsc --noEmit` passes in `Backend/`
 - [ ] `GET /health` returns 200
 - [ ] `GET /api/history` returns `{ status: "success", data: [] }` (no P2021 table errors)
-- [ ] `POST /api/history` creates record + items atomically
-- [ ] `POST /api/analyze` returns `503` without API key (not 500)
-- [ ] `POST /api/analyze` returns `400` with 1 drug
+- [ ] `POST /api/prescriptions/analyze-and-save` creates record + analysis
+- [ ] `POST /api/analyze` returns `503` without API key for 2+ drugs (not 500)
+- [ ] `POST /api/analyze` returns rules-engine result for 1 drug without API key
 - [ ] `MEMORY.md` updated with timestamp
 - [ ] No secrets in diff
 

@@ -119,3 +119,13 @@
 - **New Route**: `POST /api/prescriptions/analyze-and-save` returns `{ analysis, record }` so the client no longer risks saving without a matching analysis.
 - **Refactor**: `analyze.ts` and `history.ts` POST reuse shared services; `single-drug-analysis.ts` mirrors frontend single-medication severity logic server-side.
 - **Validation Result**: `npm run build` and `npm test` (21 tests) pass.
+
+### [June 12, 2026 - 9:30 PM] Audit Remediation — Security, Validation & Hardening
+- **History Create Deprecated**: `POST /api/history` returns 410; client-supplied `aiAnalysis` rejected with 400. All new saves must use analyze-and-save.
+- **Date Validation**: `clinicalPrescriptionDateSchema` mirrors frontend (no future dates, year ≥ 1900) on analyze-and-save.
+- **Shared Rate Limiter**: `aiAnalysisLimiter` in `rate-limiters.ts` shared by `/api/analyze` and analyze-and-save.
+- **Cache Stampede**: In-flight promise coalescing in `interaction-analysis.ts` for identical concurrent combos.
+- **Analyze Parity**: `/api/analyze` accepts 1+ drugs (rules engine for single); returns `localResult` flag.
+- **Types**: Shared `MedicationInput` in `medication-input.ts`.
+- **Tests**: `validatePrescriptionDate` + `single-drug-analysis` tests; `tsconfig` excludes `*.test.ts` from production `tsc`.
+- **Validation Result**: `npm run build` and `npm test` pass.

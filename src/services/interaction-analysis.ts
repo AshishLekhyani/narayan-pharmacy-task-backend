@@ -10,16 +10,16 @@ import {
   writeCachedAnalysis,
 } from "../lib/analyze-cache";
 import { buildPharmacyPrompt } from "../lib/analyze-prompt";
+import type { MedicationInput } from "../lib/medication-input";
 import { buildSingleDrugAnalysis } from "../lib/single-drug-analysis";
 
 const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 const AI_REQUEST_TIMEOUT_MS = 90_000;
 
-export type MedicationInput = {
-  name: string;
-  dosage: string;
-  frequency: string;
-};
+export type { MedicationInput };
+
+/** Coalesce concurrent identical combo requests into one Claude call. */
+const inFlightAnalysis = new Map<string, Promise<InteractionAnalysisResult>>();
 
 export type InteractionAnalysisResult = {
   analysis: AnalysisResultDto;
@@ -118,6 +118,25 @@ export async function runInteractionAnalysis(
     console.error("[Cache Read Error]:", cacheError);
   }
 
+  const pending = inFlightAnalysis.get(cacheKey);
+  if (pending) {
+    return pending;
+  }
+
+  const analysisPromise = runClaudeInteractionAnalysis(medications, cacheKey);
+  inFlightAnalysis.set(cacheKey, analysisPromise);
+
+  try {
+    return await analysisPromise;
+  } finally {
+    inFlightAnalysis.delete(cacheKey);
+  }
+}
+
+async function runClaudeInteractionAnalysis(
+  medications: MedicationInput[],
+  cacheKey: string
+): Promise<InteractionAnalysisResult> {
   const anthropic = getAnthropicClient();
   const abortController = new AbortController();
   const timeoutId = setTimeout(() => abortController.abort(), AI_REQUEST_TIMEOUT_MS);
