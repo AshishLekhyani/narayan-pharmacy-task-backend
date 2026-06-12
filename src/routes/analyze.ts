@@ -15,7 +15,7 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || "",
 });
 
-const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-3-opus-20240229";
+const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
 const medicationEntrySchema = z.object({
   name: z.string().trim().min(1, "Drug name is required").max(200),

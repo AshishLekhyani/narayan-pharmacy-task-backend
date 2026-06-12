@@ -69,7 +69,7 @@ Then redeploy on Render.
 | `FRONTEND_URL` | Yes (prod) | Browser origin for CORS (e.g. `http://localhost:3000`) |
 | `PORT` | No | Default `5000` |
 | `NODE_ENV` | Prod | Set to `production` when deployed |
-| `ANTHROPIC_MODEL` | No | Default `claude-3-opus-20240229`; override if unavailable on your account |
+| `ANTHROPIC_MODEL` | No | Default `claude-sonnet-4-6`; try `claude-3-5-sonnet-20241022` if unavailable |
 
 `src/lib/database.ts` normalizes legacy `sslmode=require` / `prefer` to `verify-full` automatically.
 
