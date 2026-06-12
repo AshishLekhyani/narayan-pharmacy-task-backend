@@ -67,3 +67,12 @@
 - **Whitelist API Response**: Added `toPublicAnalysisResponse()` so analyze route never leaks raw Claude/cache JSON fields to clients.
 - **Secret Scanner**: Added `scripts/verify-no-secrets.mjs` (`npm run verify:secrets`) to block commits with hardcoded keys or DB URLs in source.
 - **Error Hygiene**: Stack traces already removed from global error handler; analyze errors return safe `{ status, message }` only.
+
+### [June 12, 2026 - 2:00 PM] Deployment Hardening & Documentation
+- **Health Endpoint**: `GET /health` now pings the database (`SELECT 1`) and reports `database` + `aiConfigured` status without exposing secrets.
+- **Production Middleware**: Enabled `trust proxy` when `NODE_ENV=production` for correct rate limiting behind reverse proxies; added JSON `404` handler for unknown routes.
+- **Analyze Resilience**: Guard against empty Claude `content` arrays; map Anthropic `404` (model unavailable) to a clear `503` with `ANTHROPIC_MODEL` guidance.
+- **Deploy Scripts**: `build` runs `prisma generate && tsc`; `postinstall` runs `prisma generate`; `prestart` runs `prisma migrate deploy`.
+- **Env Template**: Expanded `.env.example` with `ANTHROPIC_MODEL` and CORS documentation.
+- **README**: Created `Backend/README.md` with API reference, database setup, env vars, and production checklist.
+- **Validation Result**: `npm run build` and `npm run verify:secrets` pass; smoke tests confirm health (DB connected), history GET/POST, analyze `400` (1 drug), analyze `503` (no API key).

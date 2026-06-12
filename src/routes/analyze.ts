@@ -96,6 +96,12 @@ function mapAnthropicError(error: unknown): { status: number; message: string } 
     if (error.status === 401) {
       return { status: 503, message: "AI service authentication failed. Verify ANTHROPIC_API_KEY on the server." };
     }
+    if (error.status === 404) {
+      return {
+        status: 503,
+        message: `AI model "${CLAUDE_MODEL}" is unavailable. Set ANTHROPIC_MODEL in server env to a model your account can access.`,
+      };
+    }
     if (error.status === 429) {
       return { status: 503, message: "AI service is temporarily busy. Please wait a moment and try again." };
     }
@@ -158,7 +164,7 @@ router.post("/", aiLimiter, async (req: Request, res: Response, next: NextFuncti
     });
 
     const firstBlock = message.content[0];
-    if (firstBlock.type !== "text") {
+    if (!firstBlock || firstBlock.type !== "text") {
       return res.status(502).json({
         status: "error",
         message: "AI Gateway returned an unsupported response format.",

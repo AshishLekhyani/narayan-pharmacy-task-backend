@@ -6,9 +6,14 @@ import rateLimit from "express-rate-limit";
 
 import analyzeRoutes from "./routes/analyze";
 import historyRoutes from "./routes/history";
+import { prisma } from "./lib/database";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
 
 // === 1. Security & HTTP Headers ===
 // Helmet sets various HTTP headers to mitigate cross-site scripting, clickjacking, and other exploits.
@@ -38,13 +43,32 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter);
 
 // === 5. Health Check ===
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "success", message: "Narayan Pharmacy API is operational." });
+app.get("/health", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({
+      status: "success",
+      message: "Narayan Pharmacy API is operational.",
+      database: "connected",
+      aiConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
+    });
+  } catch (error) {
+    console.error("[Health Check] Database unreachable:", error);
+    res.status(503).json({
+      status: "error",
+      message: "API is running but the database is unreachable.",
+      database: "disconnected",
+    });
+  }
 });
 
 // === 6. Core API Routes ===
 app.use("/api/analyze", analyzeRoutes);
 app.use("/api/history", historyRoutes);
+
+app.use((_req, res) => {
+  res.status(404).json({ status: "error", message: "Route not found." });
+});
 
 // === 7. Global Error Handler Middleware ===
 // Catch unhandled route errors and prevent stack trace leakage in production.
