@@ -4,13 +4,15 @@ import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { prisma } from "../lib/database";
+import { extractJsonFromModelText, parseAnalysisResult } from "../lib/analysis-response";
 
 const router = Router();
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || "",
 });
 
-// === Schema ===
+const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-3-opus-20240229";
+
 const medicationEntrySchema = z.object({
   name: z.string().trim().min(1, "Drug name is required"),
   dosage: z.string().trim().min(1, "Dosage is required"),
@@ -33,19 +35,12 @@ const analyzeSchema = z
     }
   });
 
-// === Rate Limiter ===
 const aiLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute window
+  windowMs: 60 * 1000,
   max: 10,
   message: { status: "error", message: "AI Analysis rate limit exceeded. Please wait before retrying." },
 });
 
-// === Helpers ===
-
-/**
- * Builds a deterministic cache key from the medication list.
- * Sorts alphabetically so order doesn't matter (Warfarin+Aspirin === Aspirin+Warfarin).
- */
 function buildCacheKey(
   medications: Array<{ name: string; dosage: string; frequency: string }>
 ): string {
@@ -56,22 +51,75 @@ function buildCacheKey(
   return crypto.createHash("sha256").update(normalized).digest("hex");
 }
 
-// === Route ===
+function buildPharmacyPrompt(
+  medications: Array<{ name: string; dosage: string; frequency: string }>
+): string {
+  const drugListString = medications
+    .map((m, i) => `  ${i + 1}. ${m.name} — ${m.dosage}, ${m.frequency}`)
+    .join("\n");
+
+  return `You are the clinical drug-interaction engine for Narayan Pharmacy, a dispensing pharmacy serving patients in India.
+
+A licensed pharmacist has entered the following concurrent medications for ONE patient. Evaluate them as a combined regimen before dispensing.
+
+Medications on this prescription:
+${drugListString}
+
+Your assessment must consider:
+- Established and theoretical drug-drug interactions (DDIs)
+- CYP450 inhibition/induction, protein binding displacement, QT prolongation, bleeding risk, hypotension, hyperkalaemia, serotonin syndrome, and additive organ toxicity
+- Indian pharmacy realities: brand/generic name variants, common OTC co-prescriptions (e.g. aspirin, PPIs, paracetamol), and regional prescribing patterns (OD/BD/TDS/QID/SOS)
+- Whether the combination is safe to dispense as written, requires counselling, dose adjustment, monitoring, or pharmacist escalation
+
+Severity guidance:
+- "high" / "Critical Conflict" — major or contraindicated interaction; do not dispense without pharmacist review
+- "low" / "Potential Interaction" or "Low Risk" — minor/moderate concern with actionable counselling
+- "Verified Safe" — no clinically meaningful interaction identified for this combination
+
+Respond ONLY with a valid JSON object — no markdown fences, no commentary, no trailing text:
+{
+  "severityLevel": "high" | "low",
+  "severity": "Critical Conflict" | "Potential Interaction" | "Low Risk" | "Verified Safe",
+  "primaryWarning": "<one sentence naming the key drug pair and interaction mechanism>",
+  "recommendation": "<one to two sentences of practical dispensing guidance for the Narayan Pharmacy pharmacist>",
+  "clinicalImpact": ["<pharmacological mechanism>", "<patient-facing clinical consequence>"],
+  "processedBy": "Claude API — Narayan Pharmacy DDI Engine"
+}`;
+}
+
+function mapAnthropicError(error: unknown): { status: number; message: string } | null {
+  if (error instanceof Anthropic.APIError) {
+    if (error.status === 401) {
+      return { status: 503, message: "AI service authentication failed. Verify ANTHROPIC_API_KEY on the server." };
+    }
+    if (error.status === 429) {
+      return { status: 503, message: "AI service is temporarily busy. Please wait a moment and try again." };
+    }
+    if (error.status === 529 || error.status === 503) {
+      return { status: 503, message: "AI service is temporarily overloaded. Please try again shortly." };
+    }
+    return { status: 502, message: "AI service returned an error. Please try again." };
+  }
+
+  if (error instanceof Error && error.message.toLowerCase().includes("timeout")) {
+    return { status: 504, message: "AI analysis timed out. Please try again." };
+  }
+
+  return null;
+}
+
 router.post("/", aiLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // 1. Validate payload
     const validationResult = analyzeSchema.safeParse(req.body);
     if (!validationResult.success) {
       return res.status(400).json({
         status: "error",
         message: validationResult.error.issues[0]?.message ?? "Malformed payload structure.",
-        details: validationResult.error.issues,
       });
     }
 
     const medications = validationResult.data.medications ?? validationResult.data.drugs ?? [];
 
-    // 2. Check API key before doing DB or AI work
     if (!process.env.ANTHROPIC_API_KEY) {
       return res.status(503).json({
         status: "error",
@@ -79,54 +127,30 @@ router.post("/", aiLimiter, async (req: Request, res: Response, next: NextFuncti
       });
     }
 
-    // 3. DB cache lookup — skip Claude if we've already analyzed this exact combination
     const cacheKey = buildCacheKey(medications);
-    const cached = await prisma.analysisCache.findUnique({ where: { cacheKey } });
 
-    if (cached) {
-      // Bump hit count in the background (fire and forget)
-      prisma.analysisCache
-        .update({ where: { cacheKey }, data: { hitCount: { increment: 1 } } })
-        .catch(() => {}); // Non-critical, never block the response
+    try {
+      const cached = await prisma.analysisCache.findUnique({ where: { cacheKey } });
+      if (cached) {
+        prisma.analysisCache
+          .update({ where: { cacheKey }, data: { hitCount: { increment: 1 } } })
+          .catch(() => {});
 
-      return res.status(200).json({ ...cached.result as object, cachedResult: true });
+        const cachedResult = parseAnalysisResult(cached.result);
+        return res.status(200).json({ ...cachedResult, cachedResult: true });
+      }
+    } catch (cacheError) {
+      console.error("[Cache Read Error]:", cacheError);
+      // Fall through to live Claude call — cache failure must not block analysis
     }
 
-    // 4. Build a pharmacy-specific, clinically rigorous prompt
-    const drugListString = medications
-      .map((m, i) => `  ${i + 1}. ${m.name} — ${m.dosage}, ${m.frequency}`)
-      .join("\n");
-
-    const prompt = `You are a clinical pharmacist AI integrated into a pharmacy dispensing system called Narayan Pharmacy.
-A pharmacist has entered the following concurrent medications for a single patient. Your task is to assess drug-drug interactions (DDIs) using established pharmacokinetic and pharmacodynamic principles.
-
-Medications prescribed:
-${drugListString}
-
-Evaluate:
-- Known or theoretical DDIs (e.g. CYP450 enzyme inhibition/induction, additive toxicity, antagonism)
-- Contraindications based on drug classes and mechanisms of action
-- Clinical severity of any interactions (no interaction, minor, moderate, major, contraindicated)
-- A concise evidence-based recommendation for the dispensing pharmacist
-
-Respond ONLY with a valid JSON object in exactly this format, with no markdown fencing, no preamble, and no trailing text:
-{
-  "severityLevel": "high" | "low",
-  "severity": "Critical Conflict" | "Potential Interaction" | "Low Risk" | "Verified Safe",
-  "primaryWarning": "<one sentence identifying the primary drug pair and the nature of the interaction>",
-  "recommendation": "<one to two sentences of actionable clinical guidance for the dispensing pharmacist>",
-  "clinicalImpact": ["<specific pharmacokinetic or pharmacodynamic effect>", "<clinical consequence for the patient>"],
-  "processedBy": "Claude API — Narayan Pharmacy DDI Engine"
-}`;
-
-    // 5. Call Claude
     const message = await anthropic.messages.create({
-      model: "claude-3-opus-20240229",
+      model: CLAUDE_MODEL,
       max_tokens: 1024,
       temperature: 0,
       system:
-        "You are a specialized JSON-only clinical drug interaction engine integrated into a retail pharmacy platform. Never output markdown. Never explain yourself. Output only a valid JSON object.",
-      messages: [{ role: "user", content: prompt }],
+        "You are a JSON-only clinical drug interaction engine for Narayan Pharmacy. Output exactly one valid JSON object. Never use markdown. Never add prose outside the JSON.",
+      messages: [{ role: "user", content: buildPharmacyPrompt(medications) }],
     });
 
     const firstBlock = message.content[0];
@@ -137,25 +161,28 @@ Respond ONLY with a valid JSON object in exactly this format, with no markdown f
       });
     }
 
-    // 6. Parse Claude's response
-    let parsedResult: object;
+    let parsedResult;
     try {
-      parsedResult = JSON.parse(firstBlock.text);
-    } catch {
-      console.error("[Claude Parse Error]: Output was not valid JSON.\n", firstBlock.text);
+      const rawJson = extractJsonFromModelText(firstBlock.text);
+      parsedResult = parseAnalysisResult(rawJson);
+    } catch (parseError) {
+      console.error("[Claude Parse Error]:", parseError, "\nRaw output:\n", firstBlock.text);
       return res.status(502).json({
         status: "error",
-        message: "AI Gateway returned an unparseable response. Please try again.",
+        message: "AI Gateway returned an unparseable clinical report. Please try again.",
       });
     }
 
-    // 7. Persist to cache (non-blocking — don't fail the response if this errors)
     prisma.analysisCache
       .create({ data: { cacheKey, result: parsedResult } })
       .catch((err) => console.error("[Cache Write Error]:", err));
 
     return res.status(200).json({ ...parsedResult, cachedResult: false });
   } catch (error) {
+    const mapped = mapAnthropicError(error);
+    if (mapped) {
+      return res.status(mapped.status).json({ status: "error", message: mapped.message });
+    }
     next(error);
   }
 });

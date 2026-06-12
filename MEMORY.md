@@ -16,17 +16,8 @@
 - **Standardization**: Extensively rewrote `CLAUDE.md`, `AGENTS.md`, and `MEMORY.md` to establish a professional, highly regimented operational environment.
 - **AI Boundaries**: Defined strict rules against hardcoding secrets and mandated proper Prisma migration workflows for any future AI agents operating in this repository.
 
-### [June 11, 2026 - 6:23 PM] Database Modeling (Prisma)
-### Backend Overview
-- **Database Framework:** Prisma ORM connected to Neon PostgreSQL.
-- **Data Architecture:** 
-  - `History`: Represents the pharmacy transaction (formerly Prescription). Contains `patientName`, `date`, and AI analysis metadata.
-  - `Prescription`: Represents the specific drugs entered in a History record (formerly Medication). Contains `name`, `dosage`, `frequency`, and links to a `History` via `historyId`.
-- **Security:** Strict `zod` validation blocks invalid payloads before DB queries. Rate limiting applied globally.
-- **REST APIs:**
-  - `POST /api/analyze`: Validates inputs with Claude 3.5 Sonnet.
-  - `GET /api/history`: Retrieves chronologically sorted pharmacy records.
-  - `POST /api/history`: ACID-compliant creation of a History record along with nested Prescriptions. simultaneously. Added a GET route to hydrate the frontend History page.
+### [June 11, 2026 - 6:23 PM] Database Modeling (Prisma) — superseded
+> **Note**: The original `History` / `Prescription` naming was incorrect and was replaced at 7:20 PM. See schema realignment below. Early Neon tables with those names were empty legacy artifacts removed during the 8:30 PM drift recovery.
 
 ### [June 11, 2026 - 7:20 PM] Schema Realignment & Audit Persistence
 - **Schema Correction**: Replaced the semantically inverted `History` -> `Prescription` structure with a clinically coherent parent/child model: `PrescriptionRecord` for the saved encounter and `PrescriptionItem` for each medication row. This matches the frontend workflow, where one prescription contains multiple medications.
@@ -43,3 +34,25 @@
 - **Single-Drug Guard**: Added a Zod `.superRefine()` rule on the backend to enforce a minimum of 2 medications before the route proceeds. Previously a single drug could be submitted without triggering the guard.
 - **DB-Backed Analysis Cache (`AnalysisCache` model)**: Added a new Prisma model `AnalysisCache` with a `cacheKey` (SHA-256 of the sorted normalized medication fingerprint), `result` (JSONB), and a `hitCount` counter. The `/api/analyze` route now checks this table before calling Claude. Cache hits return the stored result instantly and increment `hitCount` in the background (fire-and-forget). Cache misses call Claude and persist the result.
 - **Error Surfacing**: All failure branches in `/api/analyze` now return a human-readable `message` field that the frontend can display inline instead of a generic fallback.
+
+### [June 11, 2026 - 8:30 PM] Neon Schema Drift Recovery & Production Hardening
+- **Drift Diagnosis**: Neon contained stale empty tables (`History`, `Prescription`) while Prisma migration history claimed `PrescriptionRecord`/`PrescriptionItem` were applied. This caused P2021 "table does not exist" at runtime.
+- **Recovery**: Executed `prisma db push` to sync canonical schema. Verified live `GET`/`POST /api/history` against Neon.
+- **SSL Normalization**: `src/lib/database.ts` now forces `sslmode=verify-full` for legacy Neon connection strings, eliminating pg v9 deprecation warnings.
+- **npm Scripts**: Added `db:generate`, `db:migrate`, `db:push`, `db:studio`, `build`, `start` to `package.json`. Added `.env.example` and root `README.md`.
+- **Validation Result**: API smoke tests pass; test record persisted to `PrescriptionRecord`.
+
+### [June 11, 2026 - 8:45 PM] Transaction Safety, AnalysisCache Migration & Agent Docs
+- **ACID Compliance**: Wrapped `POST /api/history` create flow in `prisma.$transaction` per AGENTS.md mandate — partial record/item inserts are no longer possible.
+- **AnalysisCache Migration**: Added `20260611150000_add_analysis_cache` migration; resolved as applied after prior `db push` had already created the table in Neon.
+- **AGENTS.md Enhancement**: Rewrote with API contract table, Neon drift recovery steps, verification checklist, npm script reference, and mandatory `MEMORY.md` protocol.
+- **CLAUDE.md Update**: Corrected model documentation (`PrescriptionRecord`, `PrescriptionItem`, `AnalysisCache`) and developer workflow commands.
+- **Validation Result**: `npx prisma migrate deploy` clean after resolve; `npx tsc --noEmit` passes; analyze returns `503` without API key (expected).
+
+### [June 12, 2026 - 10:45 AM] Claude API Error Handling & Response Validation
+- **Pharmacy Prompt Upgrade**: Rewrote analyze prompt for Narayan Pharmacy (India dispensing context, OD/BD/TDS patterns, CYP450/bleeding/QT risks, pharmacist escalation guidance).
+- **Response Validation**: Added `src/lib/analysis-response.ts` with Zod schema + markdown-fence JSON extraction fallback before returning results.
+- **Anthropic Error Mapping**: Maps 401/429/503/529 API errors to user-safe messages without crashing the route or leaking stack traces.
+- **Cache Fallback**: DB cache read failures log and fall through to live Claude call; cache write failures are non-blocking.
+- **Single-Drug Guard**: Backend rejects `< 2` medications with `400` before any API key check or Claude call.
+- **Validation Result**: `npx tsc --noEmit` passes; smoke tests confirm `400` (1 drug) and `503` (no API key) responses.

@@ -125,27 +125,29 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     const { patientName, date, aiAnalysis } = validationResult.data;
     const medications = getMedications(validationResult.data);
 
-    const newRecord = await prisma.prescriptionRecord.create({
-      data: {
-        patientName,
-        prescribedAt: date ? new Date(date) : undefined,
-        analysisStatusLabel: aiAnalysis?.severity,
-        analysisSeverityLevel: aiAnalysis?.severityLevel,
-        analysisRecommendation: aiAnalysis?.recommendation,
-        analysisPrimaryWarning: aiAnalysis?.primaryWarning,
-        analysisClinicalImpact: aiAnalysis?.clinicalImpact ?? undefined,
-        analysisProcessedBy: aiAnalysis?.processedBy,
-        items: {
-          create: medications.map((medication) => ({
-            medicationName: medication.name,
-            dosage: medication.dosage,
-            frequency: medication.frequency,
-          })),
+    const newRecord = await prisma.$transaction(async (tx) => {
+      return tx.prescriptionRecord.create({
+        data: {
+          patientName,
+          prescribedAt: date ? new Date(date) : undefined,
+          analysisStatusLabel: aiAnalysis?.severity,
+          analysisSeverityLevel: aiAnalysis?.severityLevel,
+          analysisRecommendation: aiAnalysis?.recommendation,
+          analysisPrimaryWarning: aiAnalysis?.primaryWarning,
+          analysisClinicalImpact: aiAnalysis?.clinicalImpact ?? undefined,
+          analysisProcessedBy: aiAnalysis?.processedBy,
+          items: {
+            create: medications.map((medication) => ({
+              medicationName: medication.name,
+              dosage: medication.dosage,
+              frequency: medication.frequency,
+            })),
+          },
         },
-      },
-      include: {
-        items: true,
-      },
+        include: {
+          items: true,
+        },
+      });
     });
 
     res.status(201).json({

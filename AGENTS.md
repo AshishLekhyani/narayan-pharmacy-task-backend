@@ -2,38 +2,98 @@
 
 > [!CAUTION]
 > **STRICT COMPLIANCE REQUIRED**
-> You are operating within a mission-critical, clinical-grade backend ecosystem. As an autonomous agent acting in the capacity of a Principal Engineer (20+ years experience), your baseline operating assumptions must be rooted in Zero-Trust Architecture, defensive programming, and systemic resilience. Code is a liability; treat every structural modification as an operational risk that must be mitigated.
+> You are operating within a mission-critical, clinical-grade backend ecosystem. Treat every structural modification as an operational risk. **Always read this file and `MEMORY.md` before coding. Always update `MEMORY.md` after meaningful changes.**
 
 ## 1. Systemic Resilience & Defensive Programming
-- **Idempotency by Default**: Design all API mutations (`POST`, `PUT`, `DELETE`) to be strictly idempotent. Network failures and frontend retries will happen; your route controllers must guarantee that duplicate requests do not result in corrupted or duplicated database states.
-- **Fail Fast, Recover Gracefully**: Implement rigorous input validation at the absolute boundary of the system (using Zod or equivalent). Reject malformed data immediately with a `400 Bad Request`. Do not allow dirty data to penetrate the controller layer or reach the Prisma ORM.
-- **Unhandled Rejection Isolation**: Node.js environments are highly susceptible to silent async failures. You must ensure all asynchronous Express route handlers are strictly wrapped in robust `try/catch` blocks or leverage a centralized `asyncHandler` middleware to prevent process death.
+- **Idempotency awareness**: Frontend retries may occur; design mutations to tolerate duplicate submissions where feasible.
+- **Fail fast**: Validate all payloads with Zod at the route boundary. Return `400` for malformed input.
+- **Async isolation**: Every async route handler must use `try/catch` or centralized error middleware — never allow unhandled rejections.
 
 ## 2. Database Integrity & State Management
-- **ACID Compliance Constraints**: When executing multi-model inserts (e.g., saving a `Prescription` and multiple child `Medications`), you MUST utilize Prisma's `$transaction` API. Partial failures in clinical data insertion are unacceptable and legally hazardous.
-- **Migration Authority**: You have the authority to alter the database schema via `schema.prisma`. However, you must treat schema changes as irreversible in a distributed environment. Ensure migrations (`npx prisma migrate dev`) are successfully generated and tested locally before declaring the task complete. Never execute direct raw SQL (`$queryRaw`) to circumvent the ORM unless explicitly required for performance tuning, and even then, strictly parameterize all inputs to prevent SQL Injection.
-- **Canonical Domain Naming**: The root clinical record in this codebase is `PrescriptionRecord`, not `History`. The child line items are `PrescriptionItem`, not `Prescription`. Any future API contract, migration, DTO, or UI copy must preserve that distinction so schema names match pharmacist mental models.
-- **Audit Persistence Rule**: If the frontend surfaces AI findings such as severity, primary warning, recommendation, clinical impact, or model/provider name, the backend must either persist those fields explicitly or intentionally omit them from the UI contract. Never silently drop audit metadata during save flows.
+- **ACID transactions**: Multi-model writes (`PrescriptionRecord` + `PrescriptionItem`) **must** use `prisma.$transaction`.
+- **Canonical naming**: Parent = `PrescriptionRecord`, child = `PrescriptionItem`. Never reintroduce `History` / `Prescription` table names.
+- **Analysis cache**: `AnalysisCache` stores SHA-256 keyed Claude results to avoid duplicate paid API calls.
+- **Migration authority**: Schema changes go through `schema.prisma` + `prisma/migrations/`. Never hand-edit production Neon without a migration record.
 
-## 3. Security, Auth, & Zero-Trust Mandates
-- **Zero-Secret Commits**: Before running `git commit`, execute a mental audit. Verify that `.env` files are in `.gitignore` and that absolutely NO hardcoded credentials (e.g., Anthropic API keys, JWT Secrets, Database URLs) have leaked into the repository.
-- **Least Privilege Execution**: Assume the frontend client is compromised. Validate authorization contexts and ensure that users can only access or mutate data explicitly bound to their tenant/ID.
-- **CORS & Rate Limiting**: Ensure Cross-Origin Resource Sharing is locked down strictly to the production frontend domain. Rate limiting must be considered for all high-value endpoints, particularly those interfacing with external paid APIs (e.g., Anthropic Claude).
+### Neon Drift Recovery
+If Prisma reports migrations applied but Neon shows wrong/missing tables (e.g. old `History` table):
+```bash
+npm run db:push      # sync schema immediately
+npm run db:migrate   # apply pending migrations
+npm run db:generate  # refresh client
+```
 
-## 4. Architectural Cohesion & Dependency Management
-- **Domain-Driven Design (DDD)**: Do not build monolithic `index.ts` files. Isolate business logic into Service layers (`src/services/`), keeping Route Controllers thin. Let the controllers handle HTTP semantics, while the services handle the core pharmacological business logic.
-- **Strict TypeScript Enforcement**: This is not a dynamic prototyping sandbox. Utilize `strict: true` in `tsconfig.json`. Do not use `any`; construct explicit Interfaces or Types for all payloads. Let the compiler catch your errors before runtime.
-- **Contract Stability**: Prefer returning normalized DTOs from routes instead of leaking raw Prisma model names directly to the frontend. This makes future migrations safer and keeps UI code resilient to schema churn.
+### Connection String
+- Use `sslmode=verify-full` in `DATABASE_URL` (see `.env.example`).
+- `src/lib/database.ts` normalizes legacy `require`/`prefer` modes automatically.
 
-## 5. Communication & Memory Governance
-- **Architectural Logging (`MEMORY.md`)**: You are maintaining a living architecture document. Every time you introduce a new dependency, alter a database model, or make a significant architectural trade-off, you MUST log the specific change with an exact, chronologically accurate timestamp in `MEMORY.md`. Provide the *why*, not just the *what*.
-- **API Contracts & Versioning**: If you modify the shape of an API response, you break the frontend contract. You must ensure the frontend `/narayan-pharmacy-task-frontend` is updated in tandem, or explicitly document the payload changes for the frontend team.
+## 3. Security & Zero-Trust
+- **Zero-secret commits**: `.env` is gitignored. Never commit `DATABASE_URL`, `ANTHROPIC_API_KEY`, or JWT secrets.
+- **CORS**: Locked to `FRONTEND_URL` (default `http://localhost:3000`).
+- **Rate limiting**: Global (100/15min) + AI endpoint (10/min).
+- **Payload cap**: `express.json({ limit: "1mb" })`.
+- **Error responses**: No stack traces in production (`NODE_ENV=production`).
+- **Assume compromised client**: Validate everything server-side; no trust in frontend-only guards.
+
+## 4. API Contract
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/health` | Liveness check |
+| GET | `/api/history` | List up to 100 `PrescriptionRecord` rows with nested `medications[]` + `analysis` DTO |
+| POST | `/api/history` | Create record + items (accepts `medications` or legacy `prescriptions`) |
+| POST | `/api/analyze` | Claude DDI check (min 2 drugs); DB cache lookup first |
+
+### Response shapes
+- Success: `{ status: "success", data: ... }`
+- Error: `{ status: "error", message: "...", details?: ... }`
+
+### Analyze behavior
+- Returns `503` when `ANTHROPIC_API_KEY` is unset (expected in local dev until key is added).
+- Returns `400` when fewer than 2 medications submitted — **no Claude call is made**.
+- DB cache (`AnalysisCache`) keyed by SHA-256 of sorted medication fingerprint; cache read failure falls back to live API.
+- Cache hit adds `cachedResult: true` to response JSON (frontend shows "Retrieved from cache", not raw JSON).
+- Anthropic SDK errors (401/429/503/529) mapped to safe `{ status: "error", message }` responses.
+- Parsed Claude output validated with Zod before returning to frontend.
+
+## 5. Architectural Layout
+```
+Backend/
+├── prisma/schema.prisma       # PrescriptionRecord, PrescriptionItem, AnalysisCache
+├── prisma/migrations/         # Versioned SQL
+├── src/index.ts               # Express bootstrap, security middleware
+├── src/lib/database.ts        # Prisma + pg pool (SSL-normalized)
+└── src/routes/
+    ├── history.ts             # CRUD for prescription records
+    └── analyze.ts             # Claude + AnalysisCache
+```
+
+Routes stay thin; extract to `src/services/` only when logic grows beyond ~80 lines.
 
 ## 6. Execution Workflow
-When tasked with backend feature development, execute in this precise order:
-1. **Contextual Ingestion**: Review `MEMORY.md` and `CLAUDE.md` to internalize the existing architectural state and past decisions.
-2. **Contract Definition**: Define the exact Input/Output payload structures before writing business logic.
-3. **Data Modeling**: Update `schema.prisma` and execute the migration.
-4. **Service Implementation**: Write the core business logic, fully isolated from HTTP context.
-5. **Controller Binding**: Bind the service logic to the Express route and handle standard HTTP status codes.
-6. **Validation & Documentation**: Verify the route, ensure TS compilation succeeds, and log the architectural rationale in `MEMORY.md`.
+1. Read `MEMORY.md` and this file.
+2. Define input/output contract before coding.
+3. Update `schema.prisma` + migration if schema changes.
+4. Run `npm run db:generate` after schema changes.
+5. Implement route with Zod validation + transaction where needed.
+6. Verify with `npx tsc --noEmit` and live curl tests.
+7. Append milestone to `MEMORY.md` with timestamp and verification results.
+
+## 7. Verification Checklist (before declaring done)
+- [ ] `npx tsc --noEmit` passes in `Backend/`
+- [ ] `GET /health` returns 200
+- [ ] `GET /api/history` returns `{ status: "success", data: [] }` (no P2021 table errors)
+- [ ] `POST /api/history` creates record + items atomically
+- [ ] `POST /api/analyze` returns `503` without API key (not 500)
+- [ ] `POST /api/analyze` returns `400` with 1 drug
+- [ ] `MEMORY.md` updated with timestamp
+- [ ] No secrets in diff
+
+## 8. npm Scripts Reference
+| Script | Command |
+|--------|---------|
+| `npm run dev` | Start Express on port 5000 |
+| `npm run db:generate` | Regenerate Prisma client |
+| `npm run db:migrate` | `prisma migrate deploy` |
+| `npm run db:push` | `prisma db push` (drift recovery) |
+| `npm run db:studio` | Prisma Studio GUI |
