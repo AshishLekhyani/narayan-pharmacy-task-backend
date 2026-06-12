@@ -34,3 +34,19 @@ export function parseAnalysisResult(raw: unknown): AnalysisResultDto {
   }
   return parsed.data;
 }
+
+/** Whitelist-only payload sent to the frontend — never leak raw Claude/cache JSON. */
+export function toPublicAnalysisResponse(
+  result: AnalysisResultDto,
+  cachedResult: boolean
+): AnalysisResultDto & { cachedResult: boolean } {
+  return {
+    severityLevel: result.severityLevel,
+    severity: result.severity,
+    primaryWarning: result.primaryWarning,
+    recommendation: result.recommendation,
+    clinicalImpact: result.clinicalImpact,
+    processedBy: result.processedBy,
+    cachedResult,
+  };
+}

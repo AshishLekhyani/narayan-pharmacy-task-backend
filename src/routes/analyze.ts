@@ -4,7 +4,11 @@ import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { prisma } from "../lib/database";
-import { extractJsonFromModelText, parseAnalysisResult } from "../lib/analysis-response";
+import {
+  extractJsonFromModelText,
+  parseAnalysisResult,
+  toPublicAnalysisResponse,
+} from "../lib/analysis-response";
 
 const router = Router();
 const anthropic = new Anthropic({
@@ -14,15 +18,15 @@ const anthropic = new Anthropic({
 const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-3-opus-20240229";
 
 const medicationEntrySchema = z.object({
-  name: z.string().trim().min(1, "Drug name is required"),
-  dosage: z.string().trim().min(1, "Dosage is required"),
-  frequency: z.string().trim().min(1, "Frequency is required"),
+  name: z.string().trim().min(1, "Drug name is required").max(200),
+  dosage: z.string().trim().min(1, "Dosage is required").max(100),
+  frequency: z.string().trim().min(1, "Frequency is required").max(100),
 });
 
 const analyzeSchema = z
   .object({
-    drugs: z.array(medicationEntrySchema).optional(),
-    medications: z.array(medicationEntrySchema).optional(),
+    drugs: z.array(medicationEntrySchema).max(50).optional(),
+    medications: z.array(medicationEntrySchema).max(50).optional(),
   })
   .superRefine((val, ctx) => {
     const list = val.medications ?? val.drugs ?? [];
@@ -137,7 +141,7 @@ router.post("/", aiLimiter, async (req: Request, res: Response, next: NextFuncti
           .catch(() => {});
 
         const cachedResult = parseAnalysisResult(cached.result);
-        return res.status(200).json({ ...cachedResult, cachedResult: true });
+        return res.status(200).json(toPublicAnalysisResponse(cachedResult, true));
       }
     } catch (cacheError) {
       console.error("[Cache Read Error]:", cacheError);
@@ -177,7 +181,7 @@ router.post("/", aiLimiter, async (req: Request, res: Response, next: NextFuncti
       .create({ data: { cacheKey, result: parsedResult } })
       .catch((err) => console.error("[Cache Write Error]:", err));
 
-    return res.status(200).json({ ...parsedResult, cachedResult: false });
+    return res.status(200).json(toPublicAnalysisResponse(parsedResult, false));
   } catch (error) {
     const mapped = mapAnthropicError(error);
     if (mapped) {

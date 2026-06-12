@@ -22,6 +22,11 @@ model PrescriptionRecord {
   items                   PrescriptionItem[]
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
+
+  @@index([prescribedAt(sort: Desc)])
+  @@index([patientName])
+  @@index([analysisSeverityLevel])
+  @@index([analysisStatusLabel])
 }
 
 model PrescriptionItem {

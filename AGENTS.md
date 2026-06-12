@@ -79,7 +79,12 @@ Routes stay thin; extract to `src/services/` only when logic grows beyond ~80 li
 6. Verify with `npx tsc --noEmit` and live curl tests.
 7. Append milestone to `MEMORY.md` with timestamp and verification results.
 
-## 7. Verification Checklist (before declaring done)
+## 7. SECURITY RED FLAGS (must never exist)
+- **No hardcoded API keys** — `ANTHROPIC_API_KEY` and `DATABASE_URL` only in `.env` (gitignored). Run `npm run verify:secrets` before commit.
+- **No raw Claude JSON to clients** — parse with Zod, return only via `toPublicAnalysisResponse()` whitelist.
+- **No unhandled API errors** — every route returns `{ status, message }`; never leak stack traces or raw Anthropic output.
+
+## 8. Verification Checklist (before declaring done)
 - [ ] `npx tsc --noEmit` passes in `Backend/`
 - [ ] `GET /health` returns 200
 - [ ] `GET /api/history` returns `{ status: "success", data: [] }` (no P2021 table errors)

@@ -56,3 +56,14 @@
 - **Cache Fallback**: DB cache read failures log and fall through to live Claude call; cache write failures are non-blocking.
 - **Single-Drug Guard**: Backend rejects `< 2` medications with `400` before any API key check or Claude call.
 - **Validation Result**: `npx tsc --noEmit` passes; smoke tests confirm `400` (1 drug) and `503` (no API key) responses.
+
+### [June 12, 2026 - 11:30 AM] Paginated History API, DB Indexes & Input Hardening
+- **Paginated GET /api/history**: Added `page`, `limit` (default 10), `search`, and `filter` query params with server-side Prisma `where` building via `src/lib/history-query.ts`. Returns `meta` + global `stats`.
+- **Performance Indexes**: Added migration `20260612120000_history_indexes` on `prescribedAt`, `patientName`, `analysisSeverityLevel`, `analysisStatusLabel`.
+- **Security Hardening**: Capped medication array size (50), field max lengths, date validation on POST; removed stack traces from error JSON; analyze route input caps aligned with history.
+- **Validation Result**: `npx tsc --noEmit` passes.
+
+### [June 12, 2026 - 12:15 PM] Security Red-Flag Audit
+- **Whitelist API Response**: Added `toPublicAnalysisResponse()` so analyze route never leaks raw Claude/cache JSON fields to clients.
+- **Secret Scanner**: Added `scripts/verify-no-secrets.mjs` (`npm run verify:secrets`) to block commits with hardcoded keys or DB URLs in source.
+- **Error Hygiene**: Stack traces already removed from global error handler; analyze errors return safe `{ status, message }` only.

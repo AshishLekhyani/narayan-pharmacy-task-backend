@@ -57,7 +57,6 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   res.status(statusCode).json({
     status: "error",
     message: isProd ? "An internal server error occurred." : err.message,
-    ...(isProd ? {} : { stack: err.stack })
   });
 });
 
